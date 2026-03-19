@@ -307,6 +307,9 @@ class EmailReceiver {
         }
       };
 
+      let oldMailCutoffUid = 0;
+      let lastLoggedCount = -1;
+
       // 检查邮件
       const checkMail = () => {
         if (isResolved) return;
@@ -327,8 +330,7 @@ class EmailReceiver {
           return;
         }
 
-        // 只搜索未读邮件（最快）
-        const searchCriteria = ['UNSEEN'];
+        const searchCriteria = ['UNSEEN', ['TO', targetEmail]];
 
         imap.search(searchCriteria, (err, results) => {
           if (err) {
@@ -337,10 +339,8 @@ class EmailReceiver {
           }
 
           if (!results || results.length === 0) {
-            // 如果收件箱没有邮件且未检查垃圾箱，则切换到垃圾箱
             if (currentBox === 'INBOX' && !junkBoxChecked) {
               const elapsedTime = Date.now() - startTime;
-              // 在收件箱等待30秒后，如果还没找到，就检查垃圾箱
               if (elapsedTime > 30000) {
                 switchToNextBox();
               }
@@ -348,16 +348,14 @@ class EmailReceiver {
             return;
           }
           
-          // 过滤掉已处理的邮件
           const newResults = results.filter(id => !processedEmails.has(id));
           if (newResults.length === 0) {
             return;
           }
           
-          this.log(`发现 ${newResults.length} 封新邮件，开始检查...`);
+          this.log(`发现 ${newResults.length} 封匹配 ${targetEmail} 的邮件`);
 
-          // 按邮件ID倒序处理（最新的邮件ID最大），只处理最新的10封
-          const sortedResults = newResults.sort((a, b) => b - a).slice(0, 10);
+          const sortedResults = newResults.sort((a, b) => b - a);
           
           // 第一步：只获取邮件头（HEADER.FIELDS），速度极快
           const fetch = imap.fetch(sortedResults, { 
@@ -384,10 +382,12 @@ class EmailReceiver {
                 const to = parsed.to?.text || '';
                 const date = parsed.date || new Date();
                 
-                // 检查邮件时间
                 const emailAge = Date.now() - new Date(date).getTime();
                 if (emailAge > 2 * 60 * 1000) {
                   processedEmails.add(emailId);
+                  if (emailId > oldMailCutoffUid) {
+                    oldMailCutoffUid = emailId;
+                  }
                   return;
                 }
                 

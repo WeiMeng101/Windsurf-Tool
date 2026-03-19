@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
 
+// 全局状态变量
+let isForceUpdateActive = false;
+let isMaintenanceModeActive = false;
+let isApiUnavailable = false;
+
 // 修复 asar 中 ESM 模块动态导入问题
 // 将解压的 node_modules 添加到模块搜索路径
 const Module = require('module');
@@ -1717,7 +1722,44 @@ ipcMain.handle('auto-fill-payment', async (event, { paymentLink, card, billing }
 // 批量注册账号
 ipcMain.handle('batch-register', async (event, config) => {
   // 使用 JavaScript 版本注册机器人
-  const RegistrationBot = require(path.join(__dirname, 'src', 'registrationBot'));
+  const registrationBotPath = path.join(__dirname, 'src', 'registrationBot');
+  const registrationBotResolvedPath = require.resolve(registrationBotPath);
+  delete require.cache[registrationBotResolvedPath];
+  const RegistrationBot = require(registrationBotPath);
+  const safeLog = function(message, customLogCallback = null) {
+    console.log(message);
+    const callback = typeof customLogCallback === 'function'
+      ? customLogCallback
+      : (
+          typeof this === 'object' &&
+          this !== null &&
+          typeof this.logCallback === 'function'
+            ? this.logCallback
+            : null
+        );
+    if (callback) {
+      try {
+        callback(message);
+      } catch (callbackError) {
+        console.error('[日志回调执行失败]', callbackError?.message || callbackError);
+      }
+    }
+  };
+
+  RegistrationBot.prototype.log = safeLog;
+
+  if (!RegistrationBot.__registrationBotPatchedForBatch) {
+    const originalRegisterAccount = RegistrationBot.prototype.registerAccount;
+    RegistrationBot.prototype.registerAccount = async function(logCallback) {
+      if (!this.log || typeof this.log !== 'function') {
+        this.log = safeLog;
+      }
+      return originalRegisterAccount.call(this, logCallback);
+    };
+    RegistrationBot.__registrationBotPatchedForBatch = true;
+  }
+
+  console.log('[注册机器人] 日志补丁已注入');
   console.log('使用 JavaScript 版本注册机器人');
   
   // 创建保存账号的回调函数
@@ -1797,8 +1839,12 @@ ipcMain.handle('batch-register', async (event, config) => {
       // 同时输出到控制台
       console.log(log);
       // 发送实时日志到前端
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('registration-log', { message: log, type: 'info' });
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('registration-log', { message: log, type: 'info' });
+        }
+      } catch (logError) {
+        console.error('[批量注册日志回调发送失败]', logError?.message || logError);
       }
     });
   } finally {

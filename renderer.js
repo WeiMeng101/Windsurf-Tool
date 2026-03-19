@@ -44,6 +44,13 @@ try {
   window.initLucideIcons = () => console.warn('Lucide 图标库未加载');
 }
 
+// 全局状态变量
+let isForceUpdateActive = false;
+let isMaintenanceModeActive = false;
+let isApiUnavailable = false;
+let lastVersionCheckTime = 0;
+const versionCheckCooldown = 30000; // 30秒冷却时间
+
 /**
  * 刷新所有数据（账号列表、域名配置等）
  */

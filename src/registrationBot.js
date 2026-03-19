@@ -66,7 +66,7 @@ const CONSTANTS = require('../js/constants'); // 导入全局常量配置
 let instanceCounter = 0;
 
 class RegistrationBot {
-  constructor(config, saveAccountCallback = null) {
+  constructor(config, saveAccountCallback = null, sharedState = null) {
     this.config = config;
     // 实例唯一ID（用于并发时区分不同浏览器实例）
     this.instanceId = ++instanceCounter;
@@ -74,12 +74,25 @@ class RegistrationBot {
     this.emailDomains = config.emailDomains || ['example.com'];
     // 邮箱编号计数器(1-999)
     this.emailCounter = 1;
-    // 取消标志
+    // 任务级共享状态（用于并发场景下统一取消控制）
+    this._sharedState = sharedState || { isCancelled: false };
+    // 取消标志（映射到共享状态）
     this.isCancelled = false;
     // Chrome 路径缓存
     this.chromePathCache = null;
     // 保存账号的回调函数（由主进程传入）
     this.saveAccountCallback = saveAccountCallback;
+  }
+
+  get isCancelled() {
+    return !!(this._sharedState && this._sharedState.isCancelled);
+  }
+
+  set isCancelled(value) {
+    if (!this._sharedState) {
+      this._sharedState = { isCancelled: false };
+    }
+    this._sharedState.isCancelled = !!value;
   }
 
   /**
@@ -93,35 +106,36 @@ class RegistrationBot {
   /**
    * 生成域名邮箱
    * 格式: 时间戳(后3位) + 随机字母数字(4位) + 计数器(1位) = 8位
+   * 使用用户配置的自定义域名，通过 Cloudflare Catch-All 转发到 QQ 邮箱收取验证码
    */
   async generateTempEmail() {
-    // 使用时间戳后3位（确保短期内唯一）
+    const emailDomains = this.emailDomains && this.emailDomains.length > 0
+      ? this.emailDomains
+      : ['example.com'];
+
+    if (emailDomains.length === 1 && emailDomains[0] === 'example.com') {
+      this.log('警告: 未配置自定义域名，请在"系统设置 → 域名管理"中添加您的域名');
+    }
+
     const timestamp = Date.now().toString().slice(-3);
-    
-    // 生成随机字母数字组合(4位)
+
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let randomStr = '';
     for (let i = 0; i < 4; i++) {
       randomStr += chars[Math.floor(Math.random() * chars.length)];
     }
-    
-    // 添加计数器作为额外保护（1位）
+
     const counter = (this.emailCounter % 10).toString();
-    
-    // 组合用户名: 时间戳 + 随机字符串 + 计数器
-    // 例如: 922k3x91@domain.com (8位)
     const username = `${timestamp}${randomStr}${counter}`;
-    
-    // 随机选择配置的域名
-    const randomIndex = Math.floor(Math.random() * this.emailDomains.length);
-    const domain = this.emailDomains[randomIndex];
-    
-    // 递增计数器
+
+    const randomIndex = Math.floor(Math.random() * emailDomains.length);
+    const domain = emailDomains[randomIndex];
+
     this.emailCounter++;
     if (this.emailCounter > 9) {
       this.emailCounter = 1;
     }
-    
+
     return `${username}@${domain}`;
   }
 
@@ -129,7 +143,7 @@ class RegistrationBot {
    * 获取邮箱验证码（使用本地EmailReceiver）
    * 支持重试机制：最多重试2次，每次间隔20秒
    */
-  async getVerificationCode(email, maxWaitTime = 90000) {
+  async getVerificationCode(email, maxWaitTime = 60000, logCallback = null) { // 减少默认超时到60秒
     // 检查取消标志
     if (this.isCancelled) {
       throw new Error('注册已取消');
@@ -143,10 +157,19 @@ class RegistrationBot {
     
     const EmailReceiver = require('./emailReceiver');
     // 将批量注册的日志回调传入 EmailReceiver，便于在前端实时看到详细 IMAP 日志
-    const receiver = new EmailReceiver(emailConfig, this.logCallback);
+    const emitLog = typeof logCallback === 'function'
+      ? (msg) => {
+          try {
+            logCallback(msg);
+          } catch (callbackError) {
+            console.error('[验证码日志回调执行失败]', callbackError?.message || callbackError);
+          }
+        }
+      : console.log;
+    const receiver = new EmailReceiver(emailConfig, emitLog);
     
     const MAX_RETRIES = 2;
-    const RETRY_DELAY = 20000; // 20秒
+    const RETRY_DELAY = 15000; // 减少重试间隔到15秒
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       // 每次重试前检查取消标志
@@ -155,34 +178,34 @@ class RegistrationBot {
       }
       
       try {
-        if (this.logCallback) {
-          this.logCallback(`第 ${attempt} 次尝试获取验证码（QQ 邮箱 IMAP）...`);
+        if (emitLog) {
+          emitLog(`第 ${attempt} 次尝试获取验证码（QQ 邮箱 IMAP）...`);
         }
         console.log(`[尝试 ${attempt}/${MAX_RETRIES}] 等待 ${email} 的验证码邮件...`);
         
         const code = await receiver.getVerificationCode(email, maxWaitTime);
         
         if (code) {
-          if (this.logCallback) {
-            this.logCallback(`成功获取验证码: ${code}`);
+          if (emitLog) {
+            emitLog(`成功获取验证码: ${code}`);
           }
           return code;
         }
       } catch (error) {
         console.error(`[尝试 ${attempt}/${MAX_RETRIES}] 获取验证码失败:`, error.message);
-        if (this.logCallback) {
-          this.logCallback(`获取验证码失败（第 ${attempt}/${MAX_RETRIES} 次）：${error.message}`);
-        }
+          if (emitLog) {
+            emitLog(`获取验证码失败（第 ${attempt}/${MAX_RETRIES} 次）：${error.message}`);
+          }
         
         if (attempt < MAX_RETRIES) {
-          if (this.logCallback) {
-            this.logCallback(`第 ${attempt} 次获取失败，${RETRY_DELAY/1000} 秒后将重试...`);
+            if (emitLog) {
+              emitLog(`第 ${attempt} 次获取失败，${RETRY_DELAY/1000} 秒后将重试...`);
           }
           console.log(`等待 ${RETRY_DELAY/1000} 秒后重试...`);
           await this.sleep(RETRY_DELAY);
         } else {
-          if (this.logCallback) {
-            this.logCallback(`已重试 ${MAX_RETRIES} 次，仍未获取到验证码，请检查 QQ 邮箱 IMAP 配置、授权码和邮件是否正常发送`);
+          if (emitLog) {
+            emitLog(`已重试 ${MAX_RETRIES} 次，仍未获取到验证码，请检查 QQ 邮箱 IMAP 配置、授权码和邮件是否正常发送`);
           }
           throw new Error(`获取验证码失败，已重试 ${MAX_RETRIES} 次: ${error.message}`);
         }
@@ -252,10 +275,14 @@ class RegistrationBot {
   /**
    * 输出日志(同时发送到前端)
    */
-  log(message) {
+  log(message, customLogCallback = null) {
     console.log(message);
-    if (this.logCallback) {
-      this.logCallback(message);
+    if (typeof customLogCallback === 'function') {
+      try {
+        customLogCallback(message);
+      } catch (callbackError) {
+        console.error('[日志回调执行失败]', callbackError?.message || callbackError);
+      }
     }
   }
 
@@ -564,7 +591,20 @@ class RegistrationBot {
    * 注册单个账号
    */
   async registerAccount(logCallback) {
-    this.logCallback = logCallback;
+    const windowId = `窗口${this.instanceId}`;
+    
+    const originalLog = this.log.bind(this);
+    this.log = (message) => {
+      console.log(`[${windowId}] ${message}`);
+      if (logCallback && typeof logCallback === 'function') {
+        try {
+          logCallback(message);
+        } catch (callbackError) {
+          console.error('[注册窗口日志回调执行失败]', callbackError?.message || callbackError);
+        }
+      }
+    };
+    
     let browser, page;
     let userDataDir = null; // 每次调用独立的用户数据目录
     
@@ -574,6 +614,7 @@ class RegistrationBot {
         throw new Error('注册已取消');
       }
       
+      this.log('开始注册...');
       this.log('开始连接浏览器...');
       
       // 检测操作系统
@@ -813,21 +854,21 @@ class RegistrationBot {
       }
       this.log(`表单填写完成: 邮箱=${emailFilled}, 名字=${firstNameFilled}, 姓氏=${lastNameFilled}`);
       
-      // 同意条款复选框
+      // 同意条款复选框（用 evaluate 避免 React 重渲染导致元素 detached）
       await this.sleep(500);
-      const checkbox = await page.$('input[type="checkbox"]');
-      if (checkbox) {
-        const isChecked = await page.evaluate(el => el.checked, checkbox);
-        if (!isChecked) {
-          await this.sleep(200);
-          await checkbox.click();
-          await this.sleep(200);
-          // 验证是否勾选成功
-          const nowChecked = await page.evaluate(el => el.checked, checkbox);
-          this.log(`已勾选同意条款: ${nowChecked ? '成功' : '失败'}`);
-        } else {
-          this.log('条款复选框已勾选');
-        }
+      const checkboxResult = await page.evaluate(() => {
+        const cb = document.querySelector('input[type="checkbox"]');
+        if (!cb) return 'not_found';
+        if (cb.checked) return 'already_checked';
+        cb.click();
+        return cb.checked ? 'checked' : 'click_failed';
+      });
+      if (checkboxResult === 'not_found') {
+        this.log('未找到条款复选框');
+      } else if (checkboxResult === 'already_checked') {
+        this.log('条款复选框已勾选');
+      } else {
+        this.log(`已勾选同意条款: ${checkboxResult === 'checked' ? '成功' : '失败'}`);
       }
       
       await this.sleep(800); // 优化：减少等待时间
@@ -847,9 +888,8 @@ class RegistrationBot {
         }
       }
       
-      await this.sleep(2000); // 优化：减少到2秒
+      await this.sleep(2000);
       
-      // 检查取消标志
       if (this.isCancelled) {
         throw new Error('注册已取消');
       }
@@ -857,8 +897,23 @@ class RegistrationBot {
       // ========== 第二步: 填写密码 ==========
       this.log('步骤2: 填写密码信息');
       
-      // 等待密码页面加载
-      await page.waitForSelector('input[type="password"]', { timeout: 60000 });
+      // 等待密码页面加载，同时检测错误消息
+      const step2Result = await Promise.race([
+        page.waitForSelector('input[type="password"]', { timeout: 60000 }).then(() => 'password'),
+        page.waitForSelector('[role="alert"], .error-message, .error, [class*="error"], [class*="Error"]', { timeout: 60000 }).then(async (el) => {
+          const text = await page.evaluate(e => e.textContent, el);
+          return `error:${text.trim()}`;
+        }),
+      ]);
+      
+      if (typeof step2Result === 'string' && step2Result.startsWith('error:')) {
+        const errorMsg = step2Result.slice(6);
+        this.log(`页面显示错误: ${errorMsg}`);
+        if (errorMsg.toLowerCase().includes('already') || errorMsg.toLowerCase().includes('exist')) {
+          throw new Error(`邮箱已被注册: ${errorMsg}`);
+        }
+        throw new Error(`步骤1失败: ${errorMsg}`);
+      }
       await this.sleep(1500); // 优化：减少到1.5秒
       
       // 查找所有密码输入框
@@ -959,7 +1014,7 @@ class RegistrationBot {
       
       // 获取验证码
       this.log('正在接收验证码...');
-      const verificationCode = await this.getVerificationCode(email);
+      const verificationCode = await this.getVerificationCode(email, 60000, (message) => this.log(message));
       this.log(`获取到验证码: ${verificationCode}`);
       
       // 输入6位验证码 - 优化的输入逻辑
@@ -1132,6 +1187,9 @@ class RegistrationBot {
           }
         }
       }
+      
+      // 恢复原始的 log 方法
+      this.log = originalLog;
     }
   }
 
@@ -1140,7 +1198,11 @@ class RegistrationBot {
    * 支持自定义并发数量，支持平台特定优化
    */
   async batchRegister(count, maxConcurrent = 4, progressCallback, logCallback) {
-    // 重置取消标志
+    // 重置取消标志，并建立任务共享状态
+    const sharedState = this._sharedState || { isCancelled: false };
+    this._sharedState = sharedState;
+    sharedState.isCancelled = false;
+    // 保证实例访问到的取消状态一致
     this.isCancelled = false;
     
     // 尊重用户设置的并发数，不做硬性限制
@@ -1195,7 +1257,11 @@ class RegistrationBot {
         // 为每个任务创建独立的日志回调
         const taskLogCallback = (log) => {
           if (logCallback) {
-            logCallback(`[窗口${taskIndex}] ${log}`);
+            try {
+                  logCallback(log);
+            } catch (callbackError) {
+              console.error('[窗口日志回调执行失败]', callbackError?.message || callbackError);
+            }
           }
         };
         
@@ -1217,13 +1283,29 @@ class RegistrationBot {
           if (logCallback) {
             logCallback(`\n[窗口${taskIndex}] 开始注册...`);
           }
+
+          // 每个窗口独立创建 Bot 实例，避免共享状态污染（尤其是 log 回调与 this 引用）
+          const taskBot = new RegistrationBot(this.config, this.saveAccountCallback, sharedState);
+          taskBot.instanceId = taskIndex;
           
           // 添加失败重试机制（最多重试1次）
-          let result = await this.registerAccount(taskLogCallback);
+          let result;
+          try {
+            result = await taskBot.registerAccount(taskLogCallback);
+          } catch (err) {
+            result = {
+              success: false,
+              error: err?.message || String(err),
+              errorStack: err?.stack
+            };
+          }
           
           if (!result.success && !result.cancelled && !result.partialSuccess) {
+            const firstFailMessage = result.errorStack
+              ? `${result.error} | 堆栈: ${result.errorStack.split('\n')[0]}`
+              : (result.error || '未知错误');
             if (logCallback) {
-              logCallback(`[窗口${taskIndex}] 首次失败，等待10秒后重试...`);
+              logCallback(`[窗口${taskIndex}] 首次失败: ${firstFailMessage}，等待10秒后重试...`);
             }
             await this.sleep(10000);
             
@@ -1231,7 +1313,15 @@ class RegistrationBot {
               if (logCallback) {
                 logCallback(`[窗口${taskIndex}] 开始重试...`);
               }
-              result = await this.registerAccount(taskLogCallback);
+              try {
+                result = await taskBot.registerAccount(taskLogCallback);
+              } catch (err) {
+                result = {
+                  success: false,
+                  error: err?.message || String(err),
+                  errorStack: err?.stack
+                };
+              }
               
               if (result.success) {
                 if (logCallback) {

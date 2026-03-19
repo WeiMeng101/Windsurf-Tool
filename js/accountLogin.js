@@ -17,8 +17,19 @@ class AccountLogin {
    */
   log(message) {
     console.log(message);
-    if (this.logCallback) {
-      this.logCallback(message);
+    const callback = (
+      typeof this === 'object' &&
+      this !== null &&
+      typeof this.logCallback === 'function'
+        ? this.logCallback
+        : null
+    );
+    if (callback) {
+      try {
+        callback(message);
+      } catch (callbackError) {
+        console.error('[账号日志回调执行失败]', callbackError?.message || callbackError);
+      }
     }
   }
 
