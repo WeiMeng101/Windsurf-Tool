@@ -63,8 +63,8 @@ describe('AccountService', () => {
     const raw = fs.readFileSync(testFilePath, 'utf-8');
     const parsed = JSON.parse(raw);
     assert.deepEqual(parsed, accounts);
-    // Verify 2-space indentation
-    assert.match(raw, /\n  "/);
+    // Verify 2-space indentation (nested object uses 4-space indent for keys)
+    assert.match(raw, /\n    "/);
   });
 
   // Test 3: add(account) appends to existing accounts and saves
