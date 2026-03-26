@@ -84,13 +84,42 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(populated during roadmap creation)_ | | |
+| INTG-01 | Phase 1: 代码整合 | Pending |
+| INTG-02 | Phase 1: 代码整合 | Pending |
+| POOL-01 | Phase 2: 统一号池 | Pending |
+| POOL-02 | Phase 2: 统一号池 | Pending |
+| POOL-03 | Phase 2: 统一号池 | Pending |
+| POOL-04 | Phase 2: 统一号池 | Pending |
+| POOL-05 | Phase 2: 统一号池 | Pending |
+| POOL-06 | Phase 2: 统一号池 | Pending |
+| REG-01 | Phase 3: 注册流水线 | Pending |
+| REG-02 | Phase 3: 注册流水线 | Pending |
+| REG-03 | Phase 3: 注册流水线 | Pending |
+| REG-04 | Phase 3: 注册流水线 | Pending |
+| REG-05 | Phase 3: 注册流水线 | Pending |
+| REG-06 | Phase 3: 注册流水线 | Pending |
+| CARD-01 | Phase 4: 绑卡激活 | Pending |
+| CARD-02 | Phase 4: 绑卡激活 | Pending |
+| CARD-03 | Phase 4: 绑卡激活 | Pending |
+| GW-01 | Phase 5: 网关动态路由 | Pending |
+| GW-02 | Phase 5: 网关动态路由 | Pending |
+| GW-03 | Phase 5: 网关动态路由 | Pending |
+| GW-04 | Phase 5: 网关动态路由 | Pending |
+| GW-05 | Phase 5: 网关动态路由 | Pending |
+| RECV-01 | Phase 6: 异常恢复 | Pending |
+| RECV-02 | Phase 6: 异常恢复 | Pending |
+| RECV-03 | Phase 6: 异常恢复 | Pending |
+| RECV-04 | Phase 6: 异常恢复 | Pending |
+| DASH-01 | Phase 7: 全局仪表盘 | Pending |
+| DASH-02 | Phase 7: 全局仪表盘 | Pending |
+| DASH-03 | Phase 7: 全局仪表盘 | Pending |
+| DASH-04 | Phase 7: 全局仪表盘 | Pending |
 
 **Coverage:**
-- v1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25 ⚠️
+- v1 requirements: 30 total
+- Mapped to phases: 30
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after initial definition*
+*Last updated: 2026-03-26 after roadmap creation*
