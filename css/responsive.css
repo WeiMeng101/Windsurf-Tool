@@ -1,0 +1,111 @@
+/* === Responsive Design === */
+
+@media (max-width: 1360px) {
+  .workspace-shell {
+    grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.96fr);
+  }
+  .intro-grid,
+  .help-pill-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .workspace-shell,
+  .settings-layout,
+  .help-pill-list,
+  .intro-grid {
+    grid-template-columns: 1fr;
+  }
+  .page-header-home {
+    display: grid;
+  }
+  .page-header-meta {
+    justify-content: flex-start;
+  }
+  .stat-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .sidebar { width: 200px; }
+  .action-bar { flex-direction: column; align-items: stretch; }
+  .divider { display: none; }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 220px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  #register.view-content.active,
+  #settings.view-content.active,
+  #tutorial.view-content.active,
+  #autoBindCard.view-content.active,
+  #codexManage.view-content.active {
+    padding: 18px;
+  }
+  .summary-grid,
+  .help-pill-list,
+  .intro-grid {
+    grid-template-columns: 1fr;
+  }
+  .header-right { justify-content: flex-start; }
+  .page-header {
+    padding: 24px 20px;
+    border-radius: var(--radius-lg);
+  }
+  .page-header-title { font-size: 20px; }
+  .section-card,
+  .settings-card-new {
+    padding: 18px;
+  }
+  .compact-header.actions-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: -240px;
+    z-index: 1000;
+    transition: left 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.open { left: 0; }
+  .content-header { padding: 16px 20px; }
+  .content-body { padding: 16px 20px; }
+  .page-header-title { font-size: 22px; }
+  #versionUpdateModal .modal-dialog {
+    max-width: 95% !important;
+    margin: 10px !important;
+  }
+  #versionUpdateModal .modal-dialog > div:last-child {
+    padding: 20px !important;
+  }
+  #versionUpdateModal .modal-dialog .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .dashboard-overview { grid-template-columns: 1fr; }
+  .current-account-panel { border-right: none; border-bottom: 1px solid #f0f0f0; }
+  .stats-overview-panel { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

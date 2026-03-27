@@ -1,0 +1,111 @@
+/* === Pool View === */
+#pool { font-size: 13px; }
+#pool.view-content.active { display: block; overflow-y: auto; padding: 24px 28px; }
+
+/* Stats bar */
+#pool-stats { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.pool-stat-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border-light, #e2e8f0);
+  font-size: 12px; color: var(--text-secondary, #94a3b8);
+}
+.pool-stat-chip .stat-count { font-weight: 700; font-size: 14px; color: var(--text-primary, #f1f5f9); }
+
+/* Filter bar */
+.pool-filter-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+.pool-filter-btn {
+  padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border-light, #e2e8f0);
+  background: transparent; color: var(--text-secondary, #94a3b8); cursor: pointer;
+  font-size: 12px; font-weight: 500; transition: all 0.15s;
+}
+.pool-filter-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary, #f1f5f9); }
+.pool-filter-btn.active {
+  background: rgba(56, 189, 248, 0.15); color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* Account grid */
+.pool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 1024px) { .pool-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .pool-grid { grid-template-columns: 1fr; } }
+
+/* Provider group heading */
+.pool-group-heading {
+  grid-column: 1 / -1; margin: 12px 0 4px 0;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary, #94a3b8);
+  padding-bottom: 6px; border-bottom: 1px solid var(--border-light, #e2e8f0);
+}
+
+/* Account card */
+.pool-card {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  transition: border-color 0.15s;
+}
+.pool-card:hover { border-color: rgba(56, 189, 248, 0.3); }
+.pool-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.pool-card-name { font-weight: 600; font-size: 13px; color: var(--text-primary, #f1f5f9); word-break: break-all; }
+.pool-card-email { font-size: 11px; color: var(--text-muted, #64748b); margin-top: 2px; }
+.pool-card-stats { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary, #94a3b8); }
+.pool-card-footer { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; border-top: 1px solid var(--border-light, #e2e8f0); }
+
+/* Health score bar */
+.pool-health-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+.pool-health-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.pool-health-fill.health-good { background: #22c55e; }
+.pool-health-fill.health-warn { background: #f59e0b; }
+.pool-health-fill.health-bad { background: #ef4444; }
+.pool-health-label { font-size: 11px; color: var(--text-muted, #64748b); display: flex; justify-content: space-between; }
+
+/* Action buttons */
+.pool-action-btn {
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-light, #e2e8f0);
+  background: transparent; color: var(--text-secondary, #94a3b8); cursor: pointer;
+  font-size: 11px; transition: all 0.15s;
+}
+.pool-action-btn:hover { background: rgba(255,255,255,0.08); }
+.pool-action-btn.btn-enable { color: #22c55e; border-color: rgba(34,197,94,0.3); }
+.pool-action-btn.btn-enable:hover { background: rgba(34,197,94,0.1); }
+.pool-action-btn.btn-disable { color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+.pool-action-btn.btn-disable:hover { background: rgba(245,158,11,0.1); }
+.pool-action-btn.btn-delete { color: #ef4444; border-color: rgba(239,68,68,0.3); }
+.pool-action-btn.btn-delete:hover { background: rgba(239,68,68,0.1); }
+.pool-action-btn.btn-bind { color: #a78bfa; border-color: rgba(167,139,250,0.3); }
+.pool-action-btn.btn-bind:hover { background: rgba(167,139,250,0.1); }
+.pool-action-btn.btn-add {
+  padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: #38bdf8; border-color: rgba(56,189,248,0.3);
+}
+.pool-action-btn.btn-add:hover { background: rgba(56,189,248,0.1); }
+
+/* Add API Key modal */
+.pool-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.pool-modal {
+  background: #1e293b; border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 16px; padding: 24px; width: 420px; max-width: 90vw;
+}
+.pool-modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary, #f1f5f9); margin-bottom: 20px; }
+.pool-modal-field { margin-bottom: 14px; }
+.pool-modal-label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary, #94a3b8); margin-bottom: 6px; }
+.pool-modal-input {
+  width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-light, #e2e8f0);
+  background: rgba(255,255,255,0.06); color: var(--text-primary, #f1f5f9); font-size: 13px;
+  box-sizing: border-box;
+}
+.pool-modal-input:focus { outline: none; border-color: #38bdf8; }
+.pool-modal-select { appearance: none; cursor: pointer; }
+.pool-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.pool-modal-btn {
+  padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 500;
+}
+.pool-modal-btn-primary { background: #38bdf8; color: #0f172a; }
+.pool-modal-btn-primary:hover { background: #7dd3fc; }
+.pool-modal-btn-cancel { background: transparent; color: var(--text-secondary, #94a3b8); border: 1px solid var(--border-light, #e2e8f0); }
+
+/* Empty state */
+.pool-empty { grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-muted, #64748b); font-size: 13px; }
