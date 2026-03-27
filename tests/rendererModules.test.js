@@ -1,5 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
 
 describe('Renderer module require chain', () => {
   it('accountRenderer exports windowExports object', () => {
@@ -28,7 +29,7 @@ describe('Renderer module require chain', () => {
 
   it('renderer.js has less than 200 lines', () => {
     const fs = require('fs');
-    const content = fs.readFileSync('../renderer.js', 'utf-8');
+    const content = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf-8');
     const lines = content.split('\n').length;
     assert.ok(lines < 200, `renderer.js has ${lines} lines, expected < 200`);
   });
