@@ -1,7 +1,7 @@
 {
   "name": "windsurf-tool",
   "version": "6.4.1",
-  "description": "Windsurf-Tool - 自动化管理 Windsurf 账号，支持批量注册、账号切换、到期提醒等功能",
+  "description": "大魏注册 - 自动化管理账号注册、切换、绑卡与 Codex 工作流",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -38,15 +38,26 @@
   },
   "dependencies": {
     "axios": "^0.27.2",
+    "better-sqlite3": "^12.8.0",
     "chrome-launcher": "^1.1.2",
+    "cors": "^2.8.6",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^16.4.7",
     "dunder-proto": "^1.0.1",
+    "eventsource-parser": "^3.0.6",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
     "imap": "^0.8.19",
     "lucide": "^0.555.0",
     "mailparser": "^3.6.5",
+    "morgan": "^1.10.1",
+    "node-cache": "^5.1.2",
+    "node-cron": "^4.2.1",
     "puppeteer": "^21.11.0",
     "puppeteer-real-browser": "^1.3.8",
     "sql.js": "^1.10.3",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "asarmor": "^3.0.2",
@@ -61,7 +72,7 @@
   },
   "build": {
     "appId": "com.crispvibe.windsurf.tool",
-    "productName": "Windsurf-Tool",
+    "productName": "大魏注册",
     "copyright": "Copyright © 2024 crispvibe",
     "asar": true,
     "asarUnpack": [
@@ -494,7 +505,7 @@
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false,
-      "publisherName": "Windsurf Tool",
+      "publisherName": "大魏注册",
       "signingHashAlgorithms": [
         "sha256"
       ]
@@ -507,7 +518,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Windsurf-Tool",
+      "shortcutName": "大魏注册",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
@@ -540,8 +551,8 @@
       "icon": "build/icon.png",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "desktop": {
-        "Name": "Windsurf-Tool",
-        "Comment": "Windsurf账号管理工具",
+        "Name": "大魏注册",
+        "Comment": "大魏注册账号管理工具",
         "GenericName": "Account Manager",
         "Categories": "Development;Utility;"
       }
