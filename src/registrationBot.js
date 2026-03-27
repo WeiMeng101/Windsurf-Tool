@@ -788,102 +788,158 @@ class RegistrationBot {
       
       this.log('开始填写表单字段...');
       
-      // 填写所有输入框 - 改进的填写逻辑
-      const allInputs = await page.$$('input');
-      this.log(`找到 ${allInputs.length} 个输入框`);
-      
-      let emailFilled = false;
-      let firstNameFilled = false;
-      let lastNameFilled = false;
-      
-      for (let i = 0; i < allInputs.length; i++) {
-        const input = allInputs[i];
-        
-        try {
-          const type = await page.evaluate(el => el.type, input);
-          const name = await page.evaluate(el => el.name, input);
-          const placeholder = await page.evaluate(el => el.placeholder || '', input);
-          const id = await page.evaluate(el => el.id || '', input);
-          
-          this.log(`输入框 ${i+1}: type=${type}, name=${name}, placeholder=${placeholder}, id=${id}`);
-          
-          // 填写邮箱 - 更精确的匹配
-          if (!emailFilled && (type === 'email' || name === 'email' || 
-              placeholder.toLowerCase().includes('email') || 
-              id.toLowerCase().includes('email'))) {
-            await this.sleep(200);
-            await input.click({ clickCount: 3 }); // 三击选中所有内容
-            await this.sleep(100);
-            await input.type(email, { delay: 50 }); // 优化：加快输入速度
-            await this.sleep(100);
-            this.log(`已填写邮箱: ${email}`);
-            emailFilled = true;
+      // 用 page.evaluate 一次性填写所有字段，避免 React 重渲染导致 Node detached
+      const fillResult = await page.evaluate((data) => {
+        const setNativeValue = (el, value) => {
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value'
+          ).set;
+          nativeInputValueSetter.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        const result = { email: false, firstName: false, lastName: false, inputs: [] };
+        const inputs = document.querySelectorAll('input');
+
+        inputs.forEach((input, i) => {
+          const info = {
+            index: i + 1,
+            type: input.type,
+            name: input.name,
+            placeholder: input.placeholder || '',
+            id: input.id || ''
+          };
+          result.inputs.push(info);
+
+          const pl = info.placeholder.toLowerCase();
+          const id = info.id.toLowerCase();
+          const name = info.name.toLowerCase();
+
+          if (!result.email && (info.type === 'email' || name === 'email' || pl.includes('email') || id.includes('email'))) {
+            input.focus();
+            setNativeValue(input, data.email);
+            result.email = true;
+          } else if (!result.firstName && (name === 'firstname' || pl.includes('first') || id.includes('first'))) {
+            input.focus();
+            setNativeValue(input, data.firstName);
+            result.firstName = true;
+          } else if (!result.lastName && (name === 'lastname' || pl.includes('last') || id.includes('last'))) {
+            input.focus();
+            setNativeValue(input, data.lastName);
+            result.lastName = true;
           }
-          // 填写名字
-          else if (!firstNameFilled && (name === 'firstName' || 
-                   placeholder.toLowerCase().includes('first') || 
-                   id.toLowerCase().includes('first'))) {
-            await this.sleep(200);
-            await input.click();
-            await this.sleep(100);
-            await input.type(firstName, { delay: 50 });
-            await this.sleep(100);
-            this.log(`已填写名字: ${firstName}`);
-            firstNameFilled = true;
-          }
-          // 填写姓氏
-          else if (!lastNameFilled && (name === 'lastName' || 
-                   placeholder.toLowerCase().includes('last') || 
-                   id.toLowerCase().includes('last'))) {
-            await this.sleep(200);
-            await input.click();
-            await this.sleep(100);
-            await input.type(lastName, { delay: 50 });
-            await this.sleep(100);
-            this.log(`已填写姓氏: ${lastName}`);
-            lastNameFilled = true;
-          }
-        } catch (err) {
-          this.log(`填写输入框 ${i+1} 时出错: ${err.message}`);
-        }
+        });
+
+        return result;
+      }, { email, firstName, lastName });
+
+      for (const info of fillResult.inputs) {
+        this.log(`输入框 ${info.index}: type=${info.type}, name=${info.name}, placeholder=${info.placeholder}, id=${info.id}`);
       }
-      
-      // 验证是否所有必填字段都已填写
-      if (!emailFilled) {
+      if (fillResult.email) this.log(`已填写邮箱: ${email}`);
+      if (fillResult.firstName) this.log(`已填写名字: ${firstName}`);
+      if (fillResult.lastName) this.log(`已填写姓氏: ${lastName}`);
+
+      if (!fillResult.email) {
         throw new Error('未能填写邮箱字段，请检查页面结构');
       }
-      this.log(`表单填写完成: 邮箱=${emailFilled}, 名字=${firstNameFilled}, 姓氏=${lastNameFilled}`);
+      this.log(`表单填写完成: 邮箱=${fillResult.email}, 名字=${fillResult.firstName}, 姓氏=${fillResult.lastName}`);
       
-      // 同意条款复选框（用 evaluate 避免 React 重渲染导致元素 detached）
+      // 同意条款复选框（用真实鼠标点击）
       await this.sleep(500);
       const checkboxResult = await page.evaluate(() => {
         const cb = document.querySelector('input[type="checkbox"]');
-        if (!cb) return 'not_found';
-        if (cb.checked) return 'already_checked';
-        cb.click();
-        return cb.checked ? 'checked' : 'click_failed';
+        if (!cb) return { status: 'not_found' };
+        if (cb.checked) return { status: 'already_checked' };
+        // 尝试点击 label 或 checkbox 的父元素（更接近真实用户行为）
+        const label = cb.closest('label') || cb.parentElement;
+        if (label && label !== cb) {
+          label.click();
+        } else {
+          cb.click();
+        }
+        return { status: cb.checked ? 'checked' : 'click_failed' };
       });
-      if (checkboxResult === 'not_found') {
+
+      if (checkboxResult.status === 'not_found') {
         this.log('未找到条款复选框');
-      } else if (checkboxResult === 'already_checked') {
+      } else if (checkboxResult.status === 'already_checked') {
         this.log('条款复选框已勾选');
+      } else if (checkboxResult.status === 'click_failed') {
+        this.log('JS 点击复选框失败，尝试真实鼠标点击...');
+        try {
+          const cbHandle = await page.$('input[type="checkbox"]');
+          if (cbHandle) {
+            await cbHandle.click();
+            this.log('真实鼠标点击复选框成功');
+          }
+        } catch (e) {
+          this.log(`真实鼠标点击复选框也失败: ${e.message}`);
+        }
       } else {
-        this.log(`已勾选同意条款: ${checkboxResult === 'checked' ? '成功' : '失败'}`);
+        this.log('已勾选同意条款');
       }
-      
-      await this.sleep(800); // 优化：减少等待时间
-      
+
+      // 等待 Turnstile 验证完成（如果有）
+      this.log('等待页面验证（Turnstile）...');
+      for (let i = 0; i < 30; i++) {
+        const turnstileReady = await page.evaluate(() => {
+          const iframe = document.querySelector('iframe[src*="turnstile"]');
+          if (!iframe) return 'no_turnstile';
+          const resp = document.querySelector('[name="cf-turnstile-response"]');
+          if (resp && resp.value && resp.value.length > 10) return 'solved';
+          return 'pending';
+        });
+        if (turnstileReady === 'no_turnstile') {
+          this.log('页面无 Turnstile 验证');
+          break;
+        }
+        if (turnstileReady === 'solved') {
+          this.log('Turnstile 验证已通过');
+          break;
+        }
+        if (i % 5 === 0) this.log(`Turnstile 验证中... (${i + 1}/30)`);
+        await this.sleep(2000);
+      }
+
+      // 等待 Continue 按钮变为可用
+      this.log('等待 Continue 按钮可用...');
+      for (let i = 0; i < 15; i++) {
+        const btnStatus = await page.evaluate(() => {
+          const btn = document.querySelector('button[type="submit"]');
+          if (!btn) {
+            const allBtns = Array.from(document.querySelectorAll('button'));
+            const continueBtn = allBtns.find(b => (b.textContent || '').trim().includes('Continue'));
+            if (!continueBtn) return 'not_found';
+            return continueBtn.disabled ? 'disabled' : 'enabled';
+          }
+          return btn.disabled ? 'disabled' : 'enabled';
+        });
+        if (btnStatus === 'enabled') {
+          this.log('Continue 按钮已可用');
+          break;
+        }
+        if (btnStatus === 'not_found') {
+          this.log('未找到按钮，继续等待...');
+        } else {
+          if (i % 3 === 0) this.log(`Continue 按钮仍为 disabled，等待中... (${i + 1}/15)`);
+        }
+        await this.sleep(1000);
+      }
+
+      await this.sleep(500);
+
       // 点击Continue按钮
       this.log('查找并点击Continue按钮...');
-      const clicked = await this.clickButton(page, ['Continue', '继续', 'Next'], 3); // 增加重试次数
+      const clicked = await this.clickButton(page, ['Continue', '继续', 'Next'], 5);
       
       if (!clicked) {
         this.log('未找到Continue按钮，尝试查找submit按钮...');
-        const submitBtn = await page.$('button[type="submit"]');
-        if (submitBtn) {
-          await submitBtn.click();
-          this.log('已点击submit按钮');
-        } else {
+        try {
+          await page.click('button[type="submit"]');
+          this.log('已点击submit按钮（真实鼠标）');
+        } catch (e) {
           throw new Error('无法找到Continue或submit按钮');
         }
       }
@@ -950,46 +1006,98 @@ class RegistrationBot {
         this.log(`确认密码验证: ${pwd2Value.length > 0 ? '成功' : '失败'} (长度: ${pwd2Value.length})`);
       }
       
-      await this.sleep(800); // 优化：减少等待时间
-      
+      await this.sleep(1000);
+
+      // 等待第二个 Continue 按钮可用
+      this.log('等待第二个 Continue 按钮可用...');
+      for (let i = 0; i < 10; i++) {
+        const btnStatus = await page.evaluate(() => {
+          const btn = document.querySelector('button[type="submit"]');
+          if (!btn) return 'not_found';
+          return btn.disabled ? 'disabled' : 'enabled';
+        });
+        if (btnStatus === 'enabled') break;
+        await this.sleep(1000);
+      }
+
       // 点击第二个Continue按钮
       this.log('查找并点击第二个Continue按钮...');
-      const clicked2 = await this.clickButton(page, ['Continue', '继续', 'Next'], 3);
+      const clicked2 = await this.clickButton(page, ['Continue', '继续', 'Next'], 5);
       
       if (!clicked2) {
-        this.log('未找到Continue按钮，尝试查找submit按钮...');
-        const submitBtn = await page.$('button[type="submit"]');
-        if (submitBtn) {
-          await submitBtn.click();
-          this.log('已点击submit按钮');
-        } else {
+        this.log('未找到Continue按钮，尝试 submit...');
+        try {
+          await page.click('button[type="submit"]');
+          this.log('已点击submit按钮（真实鼠标）');
+        } catch (e) {
           throw new Error('无法找到第二个Continue或submit按钮');
         }
       }
       
-      await this.sleep(2000); // 优化：减少到2秒
+      await this.sleep(2000);
       
-      // 检查取消标志
       if (this.isCancelled) {
         throw new Error('注册已取消');
       }
       
       // ========== 第三步: Cloudflare人机验证 ==========
       this.log('步骤3: 等待Cloudflare验证...');
-      this.log('提示: 如果出现人机验证，请在浏览器中完成验证');
-      
-      // puppeteer-real-browser会自动处理Cloudflare Turnstile验证
-      await this.sleep(5000); // 优化：减少到5秒
-      
+      this.log('提示: puppeteer-real-browser 将自动处理 Turnstile');
+
+      // 等待 Turnstile 验证完成
+      for (let i = 0; i < 60; i++) {
+        const turnstileStatus = await page.evaluate(() => {
+          const iframe = document.querySelector('iframe[src*="turnstile"]');
+          if (!iframe) return 'no_turnstile';
+          const resp = document.querySelector('[name="cf-turnstile-response"]');
+          if (resp && resp.value && resp.value.length > 10) return 'solved';
+          return 'pending';
+        });
+        if (turnstileStatus === 'no_turnstile') {
+          this.log('此步骤无 Turnstile 验证');
+          break;
+        }
+        if (turnstileStatus === 'solved') {
+          this.log('Turnstile 验证已通过');
+          break;
+        }
+        if (i % 5 === 0) this.log(`等待 Turnstile... (${i + 1}/60)`);
+        await this.sleep(1000);
+      }
+
+      await this.sleep(1500);
+
+      // 等待 Continue 按钮可用后再点击
+      this.log('等待验证后的 Continue 按钮可用...');
+      for (let i = 0; i < 15; i++) {
+        const btnStatus = await page.evaluate(() => {
+          const btn = document.querySelector('button[type="submit"]');
+          if (!btn) {
+            const allBtns = Array.from(document.querySelectorAll('button'));
+            const continueBtn = allBtns.find(b => (b.textContent || '').trim().includes('Continue'));
+            if (!continueBtn) return 'not_found';
+            return continueBtn.disabled ? 'disabled' : 'enabled';
+          }
+          return btn.disabled ? 'disabled' : 'enabled';
+        });
+        if (btnStatus === 'enabled') {
+          this.log('Continue 按钮已可用');
+          break;
+        }
+        await this.sleep(1000);
+      }
+
+      await this.sleep(500);
+
       // 点击验证后的Continue按钮
       this.log('查找验证后的Continue按钮...');
-      const clicked3 = await this.clickButton(page, ['Continue', '继续', 'Next'], 5); // 增加重试次数
+      const clicked3 = await this.clickButton(page, ['Continue', '继续', 'Next'], 5);
       
       if (!clicked3) {
-        this.log('未找到Continue按钮,可能已自动跳转或需要手动操作');
+        this.log('未找到Continue按钮，可能已自动跳转或需要手动操作');
       }
       
-      await this.sleep(2000); // 优化：减少到2秒
+      await this.sleep(2000);
       
       // ========== 第四步: 输入验证码 ==========
       this.log('步骤4: 等待邮箱验证码...');
@@ -1014,50 +1122,52 @@ class RegistrationBot {
       
       // 获取验证码
       this.log('正在接收验证码...');
-      const verificationCode = await this.getVerificationCode(email, 60000, (message) => this.log(message));
+      const verificationCode = await this.getVerificationCode(email, 120000, (message) => this.log(message));
       this.log(`获取到验证码: ${verificationCode}`);
       
-      // 输入6位验证码 - 优化的输入逻辑
-      const codeInputs = await page.$$('input[type="text"], input[name="code"]');
-      this.log(`找到 ${codeInputs.length} 个验证码输入框`);
-      
-      if (codeInputs.length === 6) {
-        // 如果是6个独立输入框
-        this.log('检测到6个独立验证码输入框，逐个填写...');
-        for (let i = 0; i < 6; i++) {
-          await this.sleep(100);
-          await codeInputs[i].click();
-          await this.sleep(80);
-          await codeInputs[i].type(verificationCode[i], { delay: 80 });
-          this.log(`已输入第 ${i+1} 位: ${verificationCode[i]}`);
+      // 输入6位验证码（用 page.evaluate 避免 Node detached）
+      const codeResult = await page.evaluate((code) => {
+        const setVal = (el, val) => {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(el, val);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        const inputs = document.querySelectorAll('input[type="text"], input[name="code"]');
+        if (inputs.length === 6) {
+          for (let i = 0; i < 6; i++) {
+            inputs[i].focus();
+            setVal(inputs[i], code[i]);
+          }
+          return { mode: 'six', count: 6 };
+        } else if (inputs.length >= 1) {
+          inputs[0].focus();
+          setVal(inputs[0], code);
+          return { mode: 'single', count: inputs.length, value: inputs[0].value };
         }
-      } else if (codeInputs.length === 1) {
-        // 如果是单个输入框
-        this.log('检测到单个验证码输入框，一次性填写...');
-        await this.sleep(300);
-        await codeInputs[0].click();
-        await this.sleep(150);
-        await codeInputs[0].type(verificationCode, { delay: 80 });
-        
-        // 验证输入是否成功
-        const inputValue = await page.evaluate(el => el.value, codeInputs[0]);
-        this.log(`验证码输入验证: ${inputValue === verificationCode ? '成功' : '失败'} (输入值: ${inputValue})`);
+        return { mode: 'none', count: 0 };
+      }, verificationCode);
+
+      if (codeResult.mode === 'six') {
+        this.log('检测到6个独立验证码输入框，已逐个填写');
+      } else if (codeResult.mode === 'single') {
+        const ok = codeResult.value === verificationCode;
+        this.log(`检测到单个验证码输入框，验证码输入: ${ok ? '成功' : '失败'}`);
       } else {
-        this.log(`未找到标准的验证码输入框，找到 ${codeInputs.length} 个输入框`);
+        this.log('未找到验证码输入框');
       }
-      
-      await this.sleep(1000); // 优化：减少等待时间
-      
-      // 点击Create account按钮
+
+      await this.sleep(1000);
+
+      // 点击 Create account 按钮
       this.log('查找并点击Create account按钮...');
-      const createBtn = await page.$('button[type="submit"]');
-      if (createBtn) {
-        await this.sleep(300);
-        await createBtn.click();
-        this.log('已点击Create account按钮');
-      } else {
-        this.log('未找到Create account按钮，可能自动提交');
-      }
+      const createClicked = await page.evaluate(() => {
+        const btn = document.querySelector('button[type="submit"]');
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      this.log(createClicked ? '已点击Create account按钮' : '未找到Create account按钮，可能自动提交');
       await this.sleep(4000); // 优化：减少到4秒
       
       // ========== 检查注册是否成功 ==========
@@ -1072,7 +1182,6 @@ class RegistrationBot {
         console.log('注册成功!');
         this.log('注册成功!');
         
-        // 保存账号到本地（只保存邮箱和密码，Token 后续通过登录获取）
         const account = {
           email,
           password,
@@ -1080,52 +1189,75 @@ class RegistrationBot {
           lastName,
           name: `${firstName} ${lastName}`
         };
-        
-        // 使用回调函数保存账号，自动使用文件锁
+
+        // 注册成功后自动登录获取 Token，使账号可直接用于切换
+        this.log('正在自动登录获取 Token...');
+        try {
+          const AccountLogin = require('../js/accountLogin');
+          const loginHelper = new AccountLogin();
+          const loginResult = await loginHelper.loginAndGetTokens(
+            { email, password },
+            (msg) => this.log(msg)
+          );
+          if (loginResult.success) {
+            Object.assign(account, {
+              name: loginResult.account.name || account.name,
+              apiKey: loginResult.account.apiKey,
+              apiServerUrl: loginResult.account.apiServerUrl,
+              refreshToken: loginResult.account.refreshToken,
+              idToken: loginResult.account.idToken,
+              idTokenExpiresAt: loginResult.account.idTokenExpiresAt,
+              tokenUpdatedAt: new Date().toISOString()
+            });
+            this.log('Token 获取成功，账号信息完整');
+          } else {
+            this.log(`Token 获取失败: ${loginResult.error}（账号仍可保存，后续可手动获取）`);
+          }
+        } catch (loginError) {
+          this.log(`自动登录异常: ${loginError.message}（账号仍可保存，后续可手动获取）`);
+        }
+
+        // 保存账号到本地
         let saveSuccess = false;
         let saveError = null;
-        
+
         try {
           if (this.saveAccountCallback) {
             const addResult = await this.saveAccountCallback(account);
             if (addResult.success) {
-              console.log('账号已保存到本地');
               this.log('账号已保存到本地');
               saveSuccess = true;
             } else {
-              console.warn('保存账号失败:', addResult.error);
               this.log(`保存账号失败: ${addResult.error}`);
               saveError = addResult.error;
             }
           } else {
-            console.warn('未提供保存账号回调函数');
             this.log('未提供保存账号回调函数');
             saveError = '未提供保存账号回调函数';
           }
         } catch (error) {
-          console.error('保存账号异常:', error);
           this.log(`保存账号异常: ${error.message}`);
           saveError = error.message;
         }
-        
-        // 如果保存失败，返回失败状态
+
         if (!saveSuccess) {
           return {
             success: false,
             error: `注册成功但保存失败: ${saveError}`,
             email,
             password,
-            partialSuccess: true  // 标记为部分成功（注册成功但保存失败）
+            partialSuccess: true
           };
         }
-        
+
         return {
           success: true,
           email,
           password,
           firstName,
           lastName,
-          name: account.name
+          name: account.name,
+          hasToken: !!account.apiKey
         };
       } else {
         throw new Error('注册失败，请检查页面');
@@ -1430,78 +1562,89 @@ class RegistrationBot {
    */
   async clickButton(page, textList = ['Continue'], retries = 1) {
     for (let attempt = 0; attempt < retries; attempt++) {
-      try {
-        // 等待页面稳定
-        await this.sleep(500);
-        
-        // 方式1: 通过 type=submit
-        const submitBtn = await page.$('button[type="submit"]');
-        if (submitBtn) {
-          const isVisible = await page.evaluate(el => {
-            const rect = el.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }, submitBtn);
-          
-          if (isVisible) {
-            await this.sleep(200);
-            await submitBtn.click();
-            await this.sleep(200);
-            this.log('按钮点击成功 (submit)');
-            return true;
-          }
+      await this.sleep(1000);
+
+      const result = await page.evaluate((texts) => {
+        const isVisible = (el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const info = [];
+        let targetSelector = null;
+
+        // 方式1: type=submit
+        const submitBtn = document.querySelector('button[type="submit"]');
+        if (submitBtn && isVisible(submitBtn) && !submitBtn.disabled) {
+          targetSelector = 'button[type="submit"]';
+          return { clicked: false, targetSelector, method: 'submit', buttons: info };
         }
-      } catch (e) {
-        this.log(`方式1失败: ${e.message}`);
-      }
-      
-      try {
-        // 方式2: 通过文本内容查找
-        const buttons = await page.$$('button');
-        this.log(`找到 ${buttons.length} 个按钮元素`);
-        
+
+        // 方式2: 按文本内容匹配
         for (let i = 0; i < buttons.length; i++) {
           const btn = buttons[i];
-          const text = await page.evaluate(el => el.textContent?.trim() || '', btn);
-          const isVisible = await page.evaluate(el => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-          }, btn);
-          
-          if (text && isVisible) {
-            this.log(`按钮 ${i+1}: "${text}" (可见: ${isVisible})`);
-            
-            for (const searchText of textList) {
-              if (text.includes(searchText)) {
-                await this.sleep(200);
-                await btn.click();
-                await this.sleep(200);
-                this.log(`按钮点击成功: "${searchText}"`);
-                return true;
+          const text = (btn.textContent || '').trim();
+          const visible = isVisible(btn);
+          if (text && visible) {
+            info.push(text);
+            for (const searchText of texts) {
+              if (text.includes(searchText) && !btn.disabled) {
+                btn.setAttribute('data-autoclick-target', 'true');
+                return { clicked: false, targetSelector: 'button[data-autoclick-target="true"]', method: 'text', matchedText: searchText, buttons: info };
               }
             }
           }
         }
-      } catch (e) {
-        this.log(`方式2失败: ${e.message}`);
+
+        // 方式3: aria-label
+        for (const searchText of texts) {
+          const ariaBtn = document.querySelector(`button[aria-label*="${searchText}"]`);
+          if (ariaBtn && isVisible(ariaBtn) && !ariaBtn.disabled) {
+            ariaBtn.setAttribute('data-autoclick-target', 'true');
+            return { clicked: false, targetSelector: 'button[data-autoclick-target="true"]', method: 'aria', matchedText: searchText, buttons: info };
+          }
+        }
+
+        return { clicked: false, targetSelector: null, buttons: info };
+      }, textList);
+
+      if (result.buttons.length > 0) {
+        this.log(`找到 ${result.buttons.length} 个按钮: ${result.buttons.map((t, i) => `"${t}"`).join(', ')}`);
       }
-      
-      // 方式3: 尝试通过aria-label查找
-      try {
-        for (const searchText of textList) {
-          const ariaBtn = await page.$(`button[aria-label*="${searchText}"]`);
-          if (ariaBtn) {
-            await this.sleep(500);
-            await ariaBtn.click();
-            await this.sleep(500);
-            this.log(`按钮点击成功 (aria-label: ${searchText})`);
+
+      if (result.targetSelector) {
+        // 使用 Puppeteer 真实鼠标点击（而非 JS el.click()）
+        try {
+          await this.sleep(500);
+          await page.click(result.targetSelector);
+          await this.sleep(300);
+          if (result.method === 'submit') {
+            this.log('按钮点击成功 (submit - 真实鼠标)');
+          } else {
+            this.log(`按钮点击成功: "${result.matchedText}" (真实鼠标)`);
+          }
+          // 清理标记
+          await page.evaluate(() => {
+            const el = document.querySelector('[data-autoclick-target]');
+            if (el) el.removeAttribute('data-autoclick-target');
+          }).catch(() => {});
+          return true;
+        } catch (clickErr) {
+          this.log(`真实鼠标点击失败: ${clickErr.message}，尝试 JS 点击...`);
+          const jsClicked = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            if (el) { el.click(); return true; }
+            return false;
+          }, result.targetSelector);
+          if (jsClicked) {
+            this.log('JS 点击成功（回退方式）');
             return true;
           }
         }
-      } catch (e) {
-        this.log(`方式3失败: ${e.message}`);
       }
-      
+
       if (attempt < retries - 1) {
         this.log(`第${attempt + 1}次未找到按钮，等待2秒后重试...`);
         await this.sleep(2000);
