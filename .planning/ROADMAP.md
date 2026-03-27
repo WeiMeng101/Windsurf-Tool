@@ -39,11 +39,10 @@ Plans:
   2. 每个账号显示当前状态（可用/使用中/异常/冷却/禁用），状态可手动流转
   3. 用户可手动添加第三方 API Key 到号池，也可手动禁用/启用任意账号
   4. 系统根据成功率和额度余量自动计算并展示账号健康度评分
-**Plans**: 3 plans
+**Plans**: 2 plans
 Plans:
-- [ ] 01-01-PLAN.md — Data service layer (accountService + gatewayDataService)
-- [ ] 01-02-PLAN.md — Renderer module extraction from renderer.js
-- [ ] 01-03-PLAN.md — js/ and ui/ migration + index.html cleanup
+- [ ] 02-01-PLAN.md — PoolService + SQLite migration v2 + IPC handlers (TDD)
+- [ ] 02-02-PLAN.md — Pool UI renderer with account cards, filters, and actions
 **UI hint**: yes
 
 ### Phase 3: 注册流水线
@@ -125,7 +124,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. 代码整合 | 0/3 | Planned | - |
-| 2. 统一号池 | 0/? | Not started | - |
+| 2. 统一号池 | 0/2 | Planned | - |
 | 3. 注册流水线 | 0/? | Not started | - |
 | 4. 绑卡激活 | 0/? | Not started | - |
 | 5. 网关动态路由 | 0/? | Not started | - |
