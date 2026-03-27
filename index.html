@@ -4,2864 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' *; frame-src *; img-src * data:; connect-src *; font-src *;">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <script src="./node_modules/lucide/dist/umd/lucide.min.js"></script>
-  <title>Windsurf-Tool 6.4.1</title>
-  <style>
-    /* --- 全局变量 --- */
-    :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-light: #eff6ff;
-      --bg-body: #f8fafc;
-      --bg-sidebar: rgba(255, 255, 255, 0.95);
-      --bg-card: #ffffff;
-      --text-main: #0f172a;
-      --text-muted: #64748b;
-      --border: #e2e8f0;
-      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      --radius-md: 6px;
-      --radius-lg: 8px;
-      --radius-xl: 16px;
-      --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    body {
-      font-family: var(--font-family);
-      background: var(--bg-body);
-      font-size: 14px;
-      color: var(--text-main);
-      line-height: 1.5;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    /* 账号管理视图使用紧凑字体 */
-    #register { font-size: 13px; }
-
-    .app-container {
-      display: flex;
-      height: 100vh;
-      width: 100vw;
-    }
-
-    /* 左侧导航栏 */
-    .sidebar {
-      width: 240px;
-      background: var(--bg-sidebar);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      z-index: 50;
-    }
-
-    .sidebar-header {
-      padding: 20px;
-      border-bottom: 1px solid transparent;
-      -webkit-app-region: drag; /* Windows 拖动区域 */
-    }
-    
-    .sidebar-header * {
-      -webkit-app-region: no-drag; /* 按钮等元素不可拖动 */
-    }
-
-    .app-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 6px;
-    }
-
-    .app-logo-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    
-    .app-logo-icon img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-    }
-
-    .app-logo-text {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text-main);
-    }
-
-    .app-version {
-      font-size: 11px;
-      color: var(--text-muted);
-      padding-left: 42px;
-    }
-
-    .free-badge {
-      background: rgba(34, 197, 94, 0.1);
-      color: #16a34a;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(34, 197, 94, 0.2);
-    }
-
-    .sidebar-nav {
-      flex: 1;
-      padding: 12px;
-      overflow-y: auto;
-    }
-
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      margin-bottom: 4px;
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      transition: all 0.2s;
-      color: var(--text-muted);
-      font-size: 13px;
-      font-weight: 500;
-      border: none;
-      background: transparent;
-      width: 100%;
-      text-align: left;
-    }
-
-    .nav-item:hover {
-      background: rgba(0, 0, 0, 0.03);
-      color: var(--text-main);
-    }
-
-    .nav-item.active {
-      background: var(--primary-light);
-      color: var(--primary);
-      font-weight: 600;
-    }
-
-    .nav-item-icon {
-      width: 18px;
-      height: 18px;
-      flex-shrink: 0;
-    }
-
-    .nav-item.active .nav-item-icon {
-      color: var(--primary);
-    }
-
-    .sidebar-footer {
-      padding: 16px;
-      border-top: 1px solid var(--border);
-    }
-
-    .footer-links {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .footer-link {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--text-muted);
-      text-decoration: none;
-      padding: 6px 8px;
-      border-radius: var(--radius-md);
-      transition: all 0.2s;
-      border: none;
-      background: transparent;
-      width: 100%;
-      text-align: left;
-      cursor: pointer;
-    }
-
-    .footer-link:hover {
-      background: rgba(0, 0, 0, 0.03);
-      color: var(--text-main);
-    }
-
-    .footer-link-icon {
-      width: 16px;
-      height: 16px;
-      color: var(--text-muted);
-    }
-
-    /* 右侧主内容区 */
-    .main-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg-body);
-      overflow: hidden;
-      position: relative;
-    }
-
-    .content-header {
-      padding: 24px 32px;
-      background: rgba(248, 250, 252, 0.8);
-      backdrop-filter: blur(8px);
-      position: sticky;
-      top: 0;
-      z-index: 40;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .content-title {
-      font-size: 26px;
-      font-weight: 700;
-      color: var(--text-main);
-      margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      letter-spacing: -0.5px;
-    }
-
-    .content-title-icon {
-      width: 28px;
-      height: 28px;
-      color: var(--primary);
-    }
-
-    .content-subtitle {
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-left: 40px;
-    }
-
-    .content-body {
-      flex: 1;
-      padding: 24px 32px 32px 32px;
-      overflow-y: auto;
-    }
-
-    .view-content {
-      display: none;
-      height: 100%;
-      flex-direction: column;
-      animation: fadeIn 0.2s ease;
-    }
-
-    .view-content.active {
-      display: flex;
-    }
-
-    /* 设置、教程、自动绑卡视图使用block布局 */
-    #settings.view-content.active,
-    #tutorial.view-content.active,
-    #autoBindCard.view-content.active {
-      display: block;
-      overflow-y: auto;
-      padding: 32px 40px;
-    }
-
-    /* 设置页面样式 */
-    #settings .settings-wrapper,
-    #autoBindCard .settings-wrapper {
-      max-width: 800px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    /* 教程页面样式 */
-    #tutorial .tutorial-article {
-      max-width: 720px;
-      margin: 0 auto;
-      font-size: 14px;
-    }
-
-    /* === 紧凑顶部栏 (Compact Header) === */
-    .compact-header {
-      flex-shrink: 0;
-      background: #ffffff;
-      border-bottom: 1px solid #f5f5f5;
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 60px;
-      z-index: 20;
-    }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    /* 当前登录状态 - 简洁版 */
-    .current-login-card {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 13px;
-    }
-    
-    /* 状态指示点 */
-    .login-status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #34c759;
-      flex-shrink: 0;
-    }
-    .login-status-dot.offline {
-      background: #8e8e93;
-    }
-    
-    /* 登录信息 */
-    .login-info {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .login-email {
-      color: var(--text-main);
-      max-width: 180px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .login-type-tag {
-      color: #86868b;
-    }
-    
-    /* 分隔线 */
-    .login-divider {
-      width: 1px;
-      height: 16px;
-      background: var(--border);
-    }
-    
-    /* 积分区域 */
-    .credits-section {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .credits-label {
-      color: #86868b;
-    }
-    .credits-used-num {
-      color: #86868b;
-    }
-    .credits-slash {
-      color: #c7c7cc;
-    }
-    .credits-total-num {
-      color: #86868b;
-    }
-    
-    /* 进度条 - 隐藏 */
-    .credits-progress-wrapper {
-      display: none;
-    }
-    .credits-progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, #34c759 0%, #ffcc00 50%, #ff9500 75%, #ff3b30 100%);
-      transition: width 0.5s ease;
-      border-radius: 0 2px 2px 0;
-    }
-    
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    /* 工具栏输入框 */
-    .toolbar-input-group {
-      display: flex;
-      align-items: center;
-      background: #f1f5f9;
-      border-radius: var(--radius-md);
-      padding: 2px;
-      border: 1px solid var(--border);
-    }
-    .toolbar-input-group .mini-input {
-      width: 50px;
-      background: transparent;
-      border: none;
-      font-size: 12px;
-      text-align: center;
-      padding: 4px;
-      color: var(--text-main);
-    }
-    .toolbar-input-group .mini-input:focus { outline: none; }
-    .input-divider { width: 1px; height: 16px; background: #cbd5e1; }
-
-    /* 紧凑按钮 */
-    .compact-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: var(--radius-md);
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.2s;
-      height: 32px;
-      white-space: nowrap;
-    }
-    .compact-btn-primary { background: var(--primary); color: white; }
-    .compact-btn-primary:hover { background: var(--primary-hover); }
-    
-    .compact-btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
-    .compact-btn-ghost:hover { background: #f8fafc; color: var(--text-main); border-color: #cbd5e1; }
-    
-    .compact-btn-danger { color: #ef4444; border: 1px solid var(--border); background: transparent; }
-    .compact-btn-danger:hover { background: #fef2f2; border-color: #fecaca; }
-
-    .icon-only-btn { padding: 6px; width: 32px; justify-content: center; }
-
-    /* === 账号列表区域 === */
-    .grid-container {
-      flex: 1;
-      padding: 0;
-      overflow: hidden;
-      background: var(--bg-body);
-      position: relative;
-    }
-
-    /* 列表内按钮 */
-    .table-action-btn {
-      padding: 4px;
-      border-radius: 4px;
-      color: var(--text-muted);
-      border: none; 
-      background: transparent; 
-      cursor: pointer;
-    }
-    .table-action-btn:hover { background: #e2e8f0; color: var(--text-main); }
-    .table-action-btn.delete:hover { background: #fee2e2; color: #ef4444; }
-
-    /* 文章样式 */
-    .tutorial-article {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 20px 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.8;
-      color: #333;
-    }
-    .tutorial-article h1 {
-      font-size: 28px;
-      font-weight: 700;
-      color: #1d1d1f;
-      margin-bottom: 32px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid #e5e5e5;
-    }
-    .tutorial-article h2 {
-      font-size: 20px;
-      font-weight: 600;
-      color: #1d1d1f;
-      margin: 32px 0 16px 0;
-    }
-    .tutorial-article h3 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #444;
-      margin: 20px 0 10px 0;
-    }
-    .tutorial-article p {
-      font-size: 14px;
-      color: #555;
-      margin-bottom: 12px;
-    }
-    .tutorial-article ul, .tutorial-article ol {
-      font-size: 14px;
-      color: #555;
-      margin: 0 0 16px 20px;
-      padding: 0;
-    }
-    .tutorial-article li {
-      margin-bottom: 6px;
-    }
-    .tutorial-article code {
-      background: #f5f5f7;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: "SF Mono", Monaco, monospace;
-      font-size: 13px;
-      color: #007aff;
-    }
-    .tutorial-article blockquote {
-      margin: 16px 0;
-      padding: 12px 16px;
-      background: #f9f9f9;
-      border-left: 3px solid #007aff;
-      font-size: 13px;
-      color: #666;
-      border-radius: 0 8px 8px 0;
-    }
-    .tutorial-article a {
-      color: #007aff;
-      text-decoration: none;
-    }
-    .tutorial-article a:hover {
-      text-decoration: underline;
-    }
-    .tutorial-article section {
-      margin-bottom: 24px;
-    }
-    .tutorial-article strong {
-      color: #1d1d1f;
-    }
-
-    /* --- 设置页面专属优化样式 --- */
-    .settings-wrapper {
-      max-width: 800px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    .settings-section-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 12px;
-      margin-left: 4px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .settings-card-new {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-      transition: box-shadow 0.2s;
-    }
-    
-    .settings-card-new:hover {
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-      border-color: #cbd5e1;
-    }
-
-    .setting-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-    
-    .setting-full-row {
-      width: 100%;
-    }
-
-    .setting-input-wrapper {
-      position: relative;
-    }
-
-    .setting-input-wrapper input,
-    .setting-input-wrapper select,
-    .setting-input {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 13px;
-      background: #fff;
-      transition: all 0.2s;
-      color: var(--text-main);
-    }
-
-    .setting-input-wrapper input:focus,
-    .setting-input-wrapper select:focus,
-    .setting-input:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-      background: #fafbff;
-    }
-
-    .setting-input::placeholder {
-      color: #94a3b8;
-    }
-
-    .setting-input:hover:not(:focus) {
-      border-color: #cbd5e1;
-    }
-
-    /* 优化的输入框样式 */
-    .input-modern {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1.5px solid #e2e8f0;
-      border-radius: 10px;
-      font-size: 13px;
-      background: linear-gradient(to bottom, #fafbfc, #ffffff);
-      transition: all 0.2s ease;
-      color: #1e293b;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-
-    .input-modern:focus {
-      outline: none;
-      border-color: #3b82f6;
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15), 0 1px 2px rgba(0, 0, 0, 0.04);
-      background: #ffffff;
-    }
-
-    .input-modern::placeholder {
-      color: #94a3b8;
-    }
-
-    .input-modern:hover:not(:focus) {
-      border-color: #cbd5e1;
-      background: #ffffff;
-    }
-
-    /* input 输入框确保无背景图 */
-    input.setting-input,
-    input.input-modern {
-      background-image: none !important;
-    }
-
-    /* select 下拉框优化 */
-    select.setting-input,
-    select.input-modern {
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      appearance: none;
-      background-color: #fff;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-      background-repeat: no-repeat !important;
-      background-position: right 12px center;
-      background-size: 12px;
-      padding-right: 36px;
-      cursor: pointer;
-    }
-
-    select.setting-input:focus,
-    select.input-modern:focus {
-      background-color: #fafbff;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-      background-repeat: no-repeat !important;
-      background-position: right 12px center;
-      background-size: 12px;
-    }
-
-    .setting-label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-main);
-      margin-bottom: 8px;
-    }
-
-    .setting-helper {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 6px;
-      line-height: 1.4;
-    }
-
-    .tags-container {
-      margin-top: 16px;
-      padding: 12px;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      min-height: 48px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .path-display-group {
-      margin-bottom: 16px;
-    }
-    .path-display-group:last-child {
-      margin-bottom: 0;
-    }
-    
-    .path-input-readonly {
-      width: 100%;
-      padding: 10px 12px;
-      background-color: #f1f5f9 !important;
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 11px !important;
-      color: #475569 !important;
-      border: 1px solid #e2e8f0 !important;
-      border-radius: 8px;
-      cursor: text;
-      user-select: all;
-      overflow-x: auto;
-      white-space: nowrap;
-    }
-
-    .platform-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 4px 12px;
-      background: linear-gradient(135deg, #007aff, #5ac8fa);
-      color: white;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      box-shadow: 0 2px 4px rgba(0, 113, 227, 0.2);
-    }
-    
-    .domain-tag {
-      background: white;
-      color: var(--text-main);
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-    }
-    .domain-tag button {
-      background: none;
-      border: none;
-      color: #94a3b8;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-    }
-    .domain-tag button:hover { color: #ef4444; }
-
-    .save-config-btn {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 20px;
-      background: #10b981;
-      color: white;
-      border: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-      transition: all 0.2s ease;
-      z-index: 100;
-    }
-    .save-config-btn:hover {
-      background: #059669;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
-    }
-
-    /* 统一控制面板 */
-    .unified-panel {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-bottom: 16px;
-    }
-    .panel-top-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 14px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid var(--border);
-    }
-    .current-account-info {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-    .panel-stats {
-      display: flex;
-      gap: 16px;
-      font-size: 13px;
-    }
-    .panel-stats span {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .panel-stats b {
-      font-weight: 600;
-    }
-    .panel-toolbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-    .toolbar-left, .toolbar-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    .form-group label {
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-      font-weight: 500;
-      font-size: 13px;
-      color: var(--text-main);
-    }
-
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      font-size: 14px;
-      background: #f8fafc;
-      font-family: inherit;
-      color: var(--text-main);
-      transition: all 0.2s;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
-      outline: none;
-      background: #fff;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-    }
-
-    .btn {
-      padding: 9px 18px;
-      border: 1px solid transparent;
-      border-radius: var(--radius-md);
-      font-size: 13px;
-      font-weight: 500;
-      letter-spacing: 0.3px;
-      cursor: pointer;
-      margin-right: 8px;
-      font-family: inherit;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    }
-
-    .btn:active {
-      transform: translateY(1px);
-    }
-
-    .btn-primary {
-      background: var(--primary);
-      color: white;
-    }
-
-    .btn-primary:hover {
-      background: var(--primary-hover);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-    }
-
-    .btn-primary:active {
-      background: #1e40af;
-    }
-
-    .btn-danger {
-      background: #ef4444;
-      color: white;
-    }
-
-    .btn-danger:hover {
-      background: #dc2626;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
-    }
-
-    .btn-danger:active {
-      background: #b91c1c;
-    }
-
-    .btn-success {
-      background: #10b981;
-      color: white;
-    }
-
-    .btn-success:hover {
-      background: #059669;
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
-    }
-
-    .btn-success:active {
-      background: #047857;
-    }
-
-    .btn-warning {
-      background: #f59e0b;
-      color: white;
-    }
-
-    .btn-warning:hover {
-      background: #d97706;
-      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
-    }
-
-    .btn-warning:active {
-      background: #b45309;
-    }
-
-
-    /* 账号列表 - 自动填充剩余空间 */
-    .accounts-grid {
-      height: 100%;
-      width: 100%;
-      overflow-y: auto;
-      overflow-x: auto;
-      border: none;
-      background: var(--bg-card);
-    }
-
-    .account-item {
-      display: flex;
-      align-items: center;
-      padding: 8px 16px;
-      border-bottom: none;
-      font-size: 12px;
-      transition: background 0.1s;
-      min-height: 38px;
-      background: transparent;
-    }
-
-    .account-item:last-child {
-      border-bottom: none;
-    }
-
-    .account-item:hover {
-      background: #f1f5f9 !important;
-    }
-
-    /* 隔行变色 */
-    .account-item:nth-child(even):not(.header) {
-      background: #fafafa;
-    }
-
-    .account-item.header {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      background: #ffffff;
-      border-bottom: 1px solid var(--border);
-      font-size: 11px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      font-weight: 600;
-      padding: 10px 16px;
-      min-height: 38px;
-    }
-
-    .account-item.header:hover {
-      background: #ffffff !important;
-    }
-
-    /* 列定义 */
-    .acc-col {
-      padding: 0 8px;
-      overflow: visible;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-    }
-
-    .acc-col-index {
-      width: 40px;
-      flex-shrink: 0;
-      color: #86868b;
-      font-weight: 500;
-      justify-content: center;
-      font-size: 12px;
-    }
-
-    .acc-col-email {
-      width: 200px;
-      min-width: 200px;
-      flex-shrink: 0;
-      color: var(--text-main);
-      font-weight: 500;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .acc-col-email:hover {
-      color: var(--text-main);
-    }
-
-    .acc-col-password {
-      width: 120px;
-      min-width: 120px;
-      flex-shrink: 0;
-      gap: 4px;
-    }
-
-    .password-display {
-      font-family: 'SF Mono', Monaco, monospace;
-      color: var(--text-muted);
-      font-size: 11px;
-      cursor: pointer;
-      background: #f1f5f9;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    .password-display:hover {
-      color: var(--text-main);
-    }
-
-    .password-toggle {
-      background: none;
-      border: none;
-      padding: 2px;
-      cursor: pointer;
-      color: #86868b;
-      display: flex;
-      align-items: center;
-      border-radius: 3px;
-    }
-
-    .password-toggle:hover {
-      background: #e8e8ed;
-      color: #1d1d1f;
-    }
-
-    .acc-col-type {
-      width: 55px;
-      flex-shrink: 0;
-      justify-content: center;
-      font-size: 11px;
-      color: #6e6e73;
-      font-weight: 500;
-    }
-
-    .acc-col-credits {
-      width: 65px;
-      flex-shrink: 0;
-      justify-content: flex-end;
-      font-weight: 500;
-      color: #1d1d1f;
-      font-variant-numeric: tabular-nums;
-      font-size: 11px;
-    }
-
-    .acc-col-used {
-      width: 65px;
-      flex-shrink: 0;
-      justify-content: flex-end;
-      font-weight: 500;
-      color: #6e6e73;
-      font-variant-numeric: tabular-nums;
-      font-size: 11px;
-    }
-
-    .acc-col-usage {
-      width: 65px;
-      flex-shrink: 0;
-      justify-content: flex-end;
-      font-weight: 500;
-      color: #1d1d1f;
-      font-variant-numeric: tabular-nums;
-      font-size: 11px;
-    }
-
-    .acc-col-expiry {
-      width: 90px;
-      flex-shrink: 0;
-      color: #6e6e73;
-      font-size: 11px;
-    }
-
-    .acc-col-status {
-      width: 75px;
-      flex-shrink: 0;
-      justify-content: center;
-      font-weight: 500;
-      font-size: 11px;
-    }
-
-    .acc-col-note {
-      width: 100px;
-      flex-shrink: 0;
-      font-size: 11px;
-      color: #86868b;
-      cursor: pointer;
-    }
-    .acc-col-note:hover .note-text {
-      color: #007aff;
-    }
-    .acc-col-note .note-text {
-      display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .acc-col-note .note-input {
-      width: 100%;
-      padding: 2px 6px;
-      border: 1px solid #007aff;
-      border-radius: 4px;
-      font-size: 11px;
-      outline: none;
-      box-sizing: border-box;
-    }
-
-    .acc-col-actions {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      gap: 2px;
-      justify-content: flex-end;
-      padding-right: 4px;
-      overflow: visible;
-    }
-
-    /* 操作按钮 - 紧凑设计 */
-    .acc-btn {
-      padding: 4px 8px;
-      border: none;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      white-space: nowrap;
-    }
-
-    .acc-btn-icon {
-      padding: 4px;
-      background: none;
-      border: 1px solid transparent;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-muted);
-      flex-shrink: 0;
-      position: relative;
-    }
-
-    .acc-btn-icon:hover {
-      background: white;
-      color: var(--primary);
-      border-color: var(--border);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .acc-btn-icon:active {
-      background: #f1f5f9;
-    }
-
-    .acc-btn-icon[data-tooltip="删除"]:hover {
-      color: #ef4444;
-    }
-
-    /* Tooltip 提示 */
-    .acc-btn-icon[data-tooltip]::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 6px 12px;
-      background: rgba(29, 29, 31, 0.95);
-      color: white;
-      font-size: 12px;
-      font-weight: 500;
-      white-space: nowrap;
-      border-radius: 6px;
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-      transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
-      z-index: 9999;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    .acc-btn-icon[data-tooltip]:hover::after {
-      opacity: 1;
-      visibility: visible;
-      transform: translateX(-50%) translateY(-2px);
-    }
-
-    .acc-btn-primary {
-      background: #007aff;
-      color: white;
-    }
-
-    .acc-btn-primary:hover {
-      background: #0051d5;
-    }
-
-    .acc-btn-primary:active {
-      background: #004fc4;
-    }
-
-    .acc-btn-secondary {
-      background: #f5f5f7;
-      color: #1d1d1f;
-      border: 1px solid #d1d1d6;
-    }
-
-    .acc-btn-secondary:hover {
-      background: #e8e8ed;
-    }
-
-    .acc-btn-secondary:active {
-      background: #d1d1d6;
-    }
-
-    .acc-btn-danger {
-      background: transparent;
-      color: #ff3b30;
-    }
-
-    .acc-btn-danger:hover {
-      background: #fff5f5;
-    }
-
-    .acc-btn-danger:active {
-      background: #ffe5e5;
-    }
-
-
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      align-items: center;
-      justify-content: center;
-      background: rgba(15, 23, 42, 0.4);
-      z-index: 1000;
-      backdrop-filter: blur(4px);
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    
-    .modal-overlay.active {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      animation: fadeIn 0.2s ease;
-    }
-    
-    /* Windows 兼容性优化 */
-    .modal-overlay.closing {
-      animation: fadeOut 0.2s ease forwards;
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-    
-    @keyframes fadeOut {
-      from { opacity: 1; }
-      to { opacity: 0; }
-    }
-    
-    .modal-dialog {
-      background: var(--bg-card);
-      border-radius: var(--radius-xl);
-      min-width: 400px;
-      max-width: 500px;
-      box-shadow: var(--shadow-lg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    
-    @keyframes slideUpFade {
-      from {
-        transform: translateY(20px) scale(0.96);
-        opacity: 0;
-      }
-      to {
-        transform: translateY(0) scale(1);
-        opacity: 1;
-      }
-    }
-
-    @keyframes slideDown {
-      from {
-        transform: translateX(-50%) translateY(-20px);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(-50%) translateY(0);
-        opacity: 1;
-      }
-    }
-
-    @keyframes spin {
-      from {
-        transform: rotate(0deg);
-      }
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    /* 账号详情样式 */
-    .detail-section {
-      border: 1px solid #e5e5ea;
-      border-radius: 8px;
-      padding: 16px;
-    }
-
-    .detail-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-    }
-
-    .detail-item {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .detail-label {
-      font-size: 12px;
-      color: #86868b;
-      font-weight: 500;
-    }
-
-    .detail-value {
-      font-size: 14px;
-      color: #1d1d1f;
-      font-weight: 600;
-    }
-
-    /* 右键菜单样式 */
-    .context-menu-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      cursor: pointer;
-      transition: background 0.15s;
-      font-size: 12px;
-      color: #1d1d1f;
-    }
-
-    .context-menu-item:hover {
-      background: #f5f5f7;
-    }
-
-    .context-menu-item:first-child {
-      border-radius: 6px 6px 0 0;
-    }
-
-    .context-menu-item:last-child {
-      border-radius: 0 0 6px 6px;
-    }
-
-    .context-menu-divider {
-      height: 1px;
-      background: #e5e5ea;
-      margin: 2px 0;
-    }
-
-    /* 现代化弹窗样式 */
-    .modern-modal {
-      overflow: hidden;
-    }
-
-    .modern-modal-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border);
-      background: #fff;
-    }
-
-    .modal-title-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .modal-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #1d1d1f;
-      margin: 0;
-    }
-
-    .modal-close-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: none;
-      background: transparent;
-      color: #86868b;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      flex-shrink: 0;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-
-    .modal-close-btn:hover {
-      background: #f5f5f7;
-      color: #1d1d1f;
-    }
-    
-    .modal-close-btn:active {
-      transform: scale(0.95);
-      background: #e5e5ea;
-    }
-
-    .modern-modal-body {
-      padding: 24px;
-    }
-
-    .modern-form-group {
-      margin-bottom: 16px;
-    }
-    .modern-label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin-bottom: 8px;
-    }
-    .modern-input {
-      width: 100%;
-      padding: 10px 14px;
-      font-size: 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--background);
-      color: var(--text-main);
-      transition: all 0.2s;
-      box-sizing: border-box;
-    }
-    .modern-input:focus {
-      outline: none;
-      border-color: #007aff;
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-    }
-    .modern-input::placeholder {
-      color: #94a3b8;
-    }
-
-    .form-tip {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px;
-      background: #f0f8ff;
-      border: 1px solid #d1e7ff;
-      border-radius: 8px;
-      font-size: 12px;
-      color: #0066cc;
-      margin-top: 16px;
-    }
-
-    .modern-modal-footer {
-      display: flex;
-      gap: 12px;
-      justify-content: flex-end;
-      padding: 16px 24px;
-      border-top: 1px solid var(--border);
-      background: #f8fafc;
-    }
-
-    .btn-secondary {
-      background: #ffffff;
-      color: var(--text-main);
-      border: 1px solid var(--border);
-    }
-
-    .btn-secondary:hover {
-      background: #f8fafc;
-      border-color: #cbd5e1;
-    }
-
-    .modal-header {
-      font-size: 17px;
-      font-weight: 600;
-      color: #1d1d1f;
-      margin-bottom: 20px;
-    }
-    
-    .modal-footer {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-      margin-top: 20px;
-    }
-
-    .progress-bar {
-      width: 100%;
-      height: 8px;
-      background: var(--border);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 12px;
-    }
-
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, var(--primary), #60a5fa);
-      border-radius: 4px;
-      width: 0;
-      transition: width 0.3s ease;
-    }
-
-    .status-message {
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin: 16px 0;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .status-success {
-      background: #dcfce7;
-      color: #166534;
-      border: 1px solid #bbf7d0;
-    }
-
-    .status-error {
-      background: #fef2f2;
-      color: #dc2626;
-      border: 1px solid #fecaca;
-    }
-
-    .status-info {
-      background: var(--primary-light);
-      color: var(--primary);
-      border: 1px solid #bfdbfe;
-    }
-
-    .domain-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .domain-tag {
-      background: #f8fafc;
-      color: var(--text-main);
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border: 1px solid var(--border);
-    }
-
-    .domain-tag:hover {
-      background: #f1f5f9;
-    }
-
-    .domain-tag button {
-      background: none;
-      border: none;
-      color: #86868b;
-      cursor: pointer;
-      font-size: 14px;
-      padding: 0;
-      line-height: 1;
-      transition: color 0.2s ease;
-    }
-
-    .domain-tag button:hover {
-      color: #1d1d1f;
-    }
-
-    h2 {
-      font-size: 17px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin-bottom: 16px;
-      margin-top: 24px;
-    }
-
-    h2:first-child {
-      margin-top: 0;
-    }
-
-    h3 {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin-bottom: 12px;
-      margin-top: 20px;
-    }
-
-    hr {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 24px 0;
-    }
-
-    .action-bar {
-      display: flex;
-      gap: 24px;
-      margin-bottom: 24px;
-      flex-wrap: nowrap;
-      align-items: center;
-      justify-content: space-between;
-      background: var(--bg-card);
-      padding: 16px 24px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .action-group {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .account-actions-group {
-      display: flex;
-      gap: 12px;
-      align-items: flex-end;
-      margin-left: auto;
-    }
-
-    .divider {
-      width: 1px;
-      height: 24px;
-      background: #e5e5ea;
-      margin: 0 4px;
-    }
-
-    /* 批量注册面板 */
-    .batch-register-panel {
-      background: transparent;
-      border: none;
-      padding: 0;
-    }
-
-    .batch-register-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin-bottom: 0;
-      margin-right: 24px;
-      padding-bottom: 0;
-      border: none;
-      padding: 0;
-    }
-
-    .batch-register-controls {
-      display: flex;
-      gap: 16px;
-      align-items: flex-end;
-      flex-wrap: nowrap;
-    }
-
-    .input-field-group {
-      display: flex;
-      gap: 12px;
-      flex: 1;
-      min-width: 280px;
-    }
-
-    .input-field {
-      flex: 1;
-      min-width: 120px;
-    }
-
-    .input-field label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-    }
-
-    .input-field input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      font-size: 14px;
-      transition: all 0.2s ease;
-      background: #f8fafc;
-      color: var(--text-main);
-    }
-
-    .input-field input:focus {
-      outline: none;
-      background: #fff;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-    }
-
-    .input-field input::placeholder {
-      color: #94a3b8;
-    }
-
-    .batch-register-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .btn-register {
-      min-width: auto;
-      padding: 8px 16px;
-      font-weight: 600;
-    }
-
-    .btn-cancel {
-      min-width: 120px;
-      font-weight: 600;
-    }
-
-    /* 正在开发页面 */
-    .coming-soon-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 500px;
-      text-align: center;
-      padding: 40px;
-    }
-
-    .coming-soon-icon {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #e3f2fd 0%, #f0f8ff 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 32px;
-      color: #007aff;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4);
-      }
-      50% {
-        transform: scale(1.05);
-        box-shadow: 0 0 0 20px rgba(0, 122, 255, 0);
-      }
-    }
-
-    .coming-soon-title {
-      font-size: 32px;
-      font-weight: 700;
-      color: #1d1d1f;
-      margin-bottom: 12px;
-    }
-
-    .coming-soon-subtitle {
-      font-size: 16px;
-      color: #86868b;
-      margin-bottom: 40px;
-    }
-
-    .coming-soon-features {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      max-width: 400px;
-    }
-
-    .feature-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 16px 20px;
-      background: #f5f5f7;
-      border-radius: 10px;
-      font-size: 14px;
-      color: #1d1d1f;
-      transition: all 0.2s ease;
-    }
-
-    .feature-item:hover {
-      background: #ebebf0;
-      transform: translateX(4px);
-    }
-
-    .feature-item i {
-      color: #34c759;
-      flex-shrink: 0;
-    }
-
-    /* 系统设置页面 */
-    .settings-container {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      max-width: 100%;
-    }
-
-    .settings-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 0;
-      box-shadow: var(--shadow-sm);
-      transition: all 0.2s ease;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .settings-card:hover {
-      box-shadow: var(--shadow-md);
-    }
-
-    .settings-card.full-width {
-      grid-column: 1 / -1;
-    }
-
-    .settings-card-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 24px;
-      background: linear-gradient(to right, #f8fafc, #fff);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .settings-card-header i {
-      color: var(--primary);
-      flex-shrink: 0;
-    }
-
-    .settings-card-header h3 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-main);
-    }
-
-    .settings-card-body {
-      padding: 18px;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .settings-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .settings-actions {
-      grid-column: 1 / -1;
-      display: flex;
-      justify-content: center;
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid #e5e5ea;
-    }
-
-    .btn-large {
-      padding: 10px 28px;
-      font-size: 14px;
-      font-weight: 600;
-      min-width: 160px;
-    }
-    
-    .form-group {
-      margin-bottom: 12px;
-    }
-    
-    .form-group:last-child {
-      margin-bottom: 0;
-    }
-    
-    .form-group label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #1d1d1f;
-      margin-bottom: 6px;
-    }
-    
-    .form-group label i {
-      color: #86868b;
-    }
-    
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-      width: 100%;
-      padding: 8px 12px;
-      font-size: 13px;
-      border: 1px solid #d1d1d6;
-      border-radius: 6px;
-      background: white;
-      transition: all 0.2s ease;
-    }
-    
-    .form-group textarea {
-      min-height: 80px;
-      resize: vertical;
-      font-family: inherit;
-    }
-    
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
-      outline: none;
-      border-color: #007aff;
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-    }
-    
-    .form-tip {
-      display: flex;
-      align-items: flex-start;
-      gap: 6px;
-      font-size: 11px;
-      color: #86868b;
-      margin-top: 6px;
-      line-height: 1.4;
-    }
-    
-    .form-tip i {
-      color: #86868b;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-
-    /* 批量注册弹窗 */
-    .register-modal {
-      max-width: 480px;
-      width: 90%;
-      max-height: 80vh;
-      display: flex;
-      flex-direction: column;
-      border-radius: 16px;
-      overflow: hidden;
-      background: #fff;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    }
-
-    .register-modal-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border);
-      background: #fff;
-    }
-
-    .register-modal-body {
-      padding: 24px;
-      flex: 1;
-      min-height: 0;
-      overflow: visible;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      background: #fff;
-    }
-
-    .register-stats {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      padding: 16px;
-      background: var(--bg-body);
-      border-radius: var(--radius-lg);
-    }
-
-    .register-stat-item {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .stat-label {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .stat-value {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--text-main);
-    }
-
-    .stat-value.success {
-      color: #16a34a;
-    }
-
-    .stat-value.error {
-      color: #ef4444;
-    }
-
-    .register-log-container {
-      flex: 0 0 auto;
-      height: 250px;
-      background: #0f172a;
-      border-radius: var(--radius-md);
-      overflow: visible;
-      border: 1px solid #334155;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .register-log {
-      height: 200px;
-      max-height: 200px;
-      overflow-y: scroll !important;
-      overflow-x: hidden;
-      padding: 12px;
-      font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Consolas', monospace;
-      font-size: 11px;
-      line-height: 1.6;
-      color: #e2e8f0;
-    }
-
-    .register-log::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    .register-log::-webkit-scrollbar-track {
-      background: #2d2d2d;
-    }
-
-    .register-log::-webkit-scrollbar-thumb {
-      background: #555;
-      border-radius: 4px;
-    }
-
-    .register-log::-webkit-scrollbar-thumb:hover {
-      background: #666;
-    }
-
-    .log-entry {
-      margin-bottom: 4px;
-      word-wrap: break-word;
-    }
-
-    .log-timestamp {
-      color: #858585;
-      margin-right: 8px;
-    }
-
-    .log-info {
-      color: #4ec9b0;
-    }
-
-    .log-success {
-      color: #4ec9b0;
-    }
-
-    .log-error {
-      color: #f48771;
-    }
-
-    .log-warning {
-      color: #dcdcaa;
-    }
-
-    .register-modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-    }
-
-    /* 下拉菜单 */
-    .dropdown-container {
-      position: relative;
-      display: inline-block;
-    }
-
-    .dropdown-menu {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      background: white;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      box-shadow: var(--shadow-lg);
-      min-width: 160px;
-      z-index: 1000;
-      display: none;
-      overflow: hidden;
-      padding: 8px 0;
-    }
-
-    .dropdown-menu.show {
-      display: block;
-    }
-
-    .dropdown-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 16px;
-      cursor: pointer;
-      transition: background 0.2s ease;
-      font-size: 13px;
-      color: var(--text-main);
-    }
-
-    .dropdown-item:hover {
-      background: #f8fafc;
-    }
-
-    .dropdown-item:active {
-      background: #f1f5f9;
-    }
-
-    .dropdown-item i {
-      color: var(--primary);
-    }
-
-    /* 版本更新弹窗响应式样式 */
-    @media (max-width: 768px) {
-      #versionUpdateModal .modal-dialog {
-        max-width: 95% !important;
-        margin: 10px !important;
-      }
-      
-      #versionUpdateModal .modal-dialog > div:last-child {
-        padding: 20px !important;
-      }
-      
-      #versionUpdateModal .modal-dialog .grid {
-        grid-template-columns: 1fr !important;
-        gap: 12px !important;
-      }
-    }
-
-    /* 版本更新弹窗特殊样式 */
-    #versionUpdateModal.modal-overlay {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-    }
-
-    .app-description {
-      font-size: 13px;
-      color: #6e6e73;
-      line-height: 1.5;
-    }
-
-    /* 紧凑型 Dashboard (新) */
-    .compact-dashboard {
-      background: var(--bg-card);
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow-sm);
-      margin-bottom: 16px;
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-
-    .compact-account-info {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex: 1;
-    }
-
-    .compact-avatar {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary), #60a5fa);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
-      flex-shrink: 0;
-    }
-
-    .compact-details {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .compact-details h4 {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin: 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .compact-details p {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin: 0;
-      display: flex;
-      gap: 16px;
-      align-items: center;
-    }
-
-    .compact-details b {
-      font-family: 'SF Mono', Monaco, monospace;
-    }
-
-    .compact-stats {
-      display: flex;
-      align-items: center;
-      gap: 24px;
-      padding-left: 24px;
-      border-left: 1px solid var(--border);
-    }
-
-    .compact-stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .compact-stat-value {
-      font-size: 18px;
-      font-weight: 700;
-      line-height: 1.2;
-      color: var(--text-main);
-    }
-
-    .compact-stat-label {
-      font-size: 10px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    /* 紧凑型 Toolbar (新) */
-    .compact-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-      background: var(--bg-card);
-      padding: 8px;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--border);
-    }
-
-    .compact-toolbar-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .toolbar-label {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-main);
-      padding-left: 8px;
-      padding-right: 4px;
-      display: flex;
-      align-items: center;
-    }
-
-    .toolbar-divider {
-      width: 1px;
-      height: 20px;
-      background: var(--border);
-      margin: 0 4px;
-    }
-
-    .mini-input {
-      width: 70px;
-      padding: 6px 10px;
-      font-size: 13px;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--border);
-      background: var(--bg-body);
-      color: var(--text-main);
-      transition: all 0.2s;
-    }
-    
-    .mini-input:focus {
-      background: #fff;
-      border-color: var(--primary);
-      outline: none;
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
-    }
-
-    .mini-btn {
-      padding: 6px 12px;
-      font-size: 13px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.2s;
-      height: 32px;
-      white-space: nowrap;
-    }
-
-    .mini-btn-primary { background: var(--primary); color: white; }
-    .mini-btn-primary:hover { background: var(--primary-hover); }
-    
-    .mini-btn-secondary { background: white; border-color: var(--border); color: var(--text-main); }
-    .mini-btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
-    
-    .mini-btn-success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-    .mini-btn-success:hover { background: #dcfce7; }
-
-    /* 保留原有样式的兼容 */
-    .stat-compact-item-old {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 0;
-      border-left: none;
-      position: relative;
-    }
-    .stat-compact-item:not(:last-child)::after {
-      content: '';
-      position: absolute;
-      right: -10px;
-      top: 20%;
-      height: 60%;
-      width: 1px;
-      background: var(--border);
-    }
-
-    .stat-compact-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
-    .stat-compact-value { font-size: 28px; font-weight: 800; letter-spacing: -1px; line-height: 1.2; }
-    
-    .stat-total { color: var(--text-main); }
-    .stat-active { color: #16a34a; }
-    .stat-warning { color: #f59e0b; }
-    .stat-expired { color: #ef4444; }
-
-    @media (max-width: 1100px) {
-      .dashboard-overview { grid-template-columns: 1fr; }
-      .current-account-panel { border-right: none; border-bottom: 1px solid #f0f0f0; }
-      .stats-overview-panel { grid-template-columns: repeat(2, 1fr); }
-    }
-
-    .switch-accounts-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 8px;
-      width: 100%;
-      max-height: 380px;
-      overflow-y: auto;
-      padding-right: 4px;
-      margin-top: 16px;
-    }
-
-    .used-accounts-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 8px;
-      width: 100%;
-      max-height: 380px;
-      overflow-y: auto;
-      padding-right: 4px;
-      margin-top: 16px;
-    }
-
-    .switch-account-card {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 12px;
-      min-height: 88px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      cursor: pointer;
-      position: relative;
-      transition: all 0.2s ease;
-    }
-
-    .switch-account-card:hover { 
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .used-account-card {
-      background: #ebebf0;
-      border: 1px solid #d2d2d7;
-      border-radius: 8px;
-      padding: 12px;
-      min-height: 88px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      cursor: pointer;
-      position: relative;
-      opacity: 0.7;
-    }
-
-    .used-account-card:hover { 
-      background: #e0e0e5;
-      opacity: 1;
-    }
-    .switch-account-card .email,
-    .used-account-card .email { 
-      font-size: 12px; 
-      font-weight: 500; 
-      color: #1d1d1f; 
-      word-wrap: break-word; 
-      word-break: break-all;
-      line-height: 1.4;
-      padding-right: 48px;
-    }
-    .switch-account-card .badge,
-    .used-account-card .badge { 
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      padding: 3px 6px; 
-      border-radius: 4px; 
-      font-size: 10px; 
-      font-weight: 500;
-      color: #fff;
-      white-space: nowrap;
-    }
-    .switch-account-card .meta,
-    .used-account-card .meta { 
-      font-size: 11px; 
-      color: #86868b; 
-      line-height: 1.3;
-      margin-top: 6px;
-      word-wrap: break-word;
-    }
-
-    /* 教程页面样式 */
-    .tutorial-section {
-      margin-bottom: 32px;
-    }
-
-    .tutorial-card {
-      background: #f8fafc;
-      border-radius: var(--radius-md);
-      padding: 20px;
-      border: 1px solid var(--border);
-    }
-
-    .tutorial-step {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .tutorial-step:last-child {
-      margin-bottom: 0;
-    }
-
-    .step-number {
-      flex-shrink: 0;
-      width: 40px;
-      height: 40px;
-      background: #007aff;
-      color: white;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      font-weight: 600;
-    }
-
-    .step-content h4 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #1d1d1f;
-      margin-bottom: 8px;
-    }
-
-    .step-content p {
-      font-size: 13px;
-      color: #6e6e73;
-      margin-bottom: 8px;
-      line-height: 1.5;
-    }
-    
-    .step-content ul {
-      margin: 8px 0;
-      padding-left: 20px;
-    }
-
-    .step-content li {
-      font-size: 13px;
-      color: #6e6e73;
-      margin-bottom: 4px;
-      line-height: 1.5;
-    }
-
-    .faq-item {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 16px 20px;
-      margin-bottom: 12px;
-    }
-
-    .faq-question {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-main);
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .faq-answer {
-      font-size: 13px;
-      color: #6e6e73;
-      line-height: 1.6;
-    }
-
-    .faq-answer p {
-      margin-bottom: 8px;
-    }
-
-    .faq-answer ul,
-    .faq-answer ol {
-      margin: 8px 0;
-      padding-left: 24px;
-    }
-
-    .faq-answer li {
-      margin-bottom: 6px;
-    }
-
-    .faq-answer code {
-      background: #f5f5f7;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-family: 'SF Mono', Monaco, monospace;
-      font-size: 12px;
-    }
-
-    .tips-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 16px;
-    }
-
-    .tip-card {
-      background: #ffffff;
-      border: 1px solid #e5e5ea;
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-    }
-
-    .tip-icon {
-      font-size: 32px;
-      margin-bottom: 12px;
-    }
-
-    .tip-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #1d1d1f;
-      margin-bottom: 8px;
-    }
-
-    .tip-content {
-      font-size: 13px;
-      color: #6e6e73;
-      line-height: 1.5;
-    }
-
-    .warning-box {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 8px;
-      padding: 16px 20px;
-    }
-
-    .warning-box ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .warning-box li {
-      font-size: 13px;
-      color: #856404;
-      margin-bottom: 8px;
-      line-height: 1.5;
-    }
-
-    .contact-box {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 20px;
-    }
-
-    .contact-box p {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 0;
-    }
-
-    /* 滚动条样式 */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 3px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #94a3b8;
-    }
-
-    /* 按钮图标对齐 */
-    .btn svg {
-      flex-shrink: 0;
-    }
-
-    /* 悬浮操作按钮组 */
-    .float-actions {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      z-index: 100;
-    }
-
-    .float-btn {
-      width: 50px;
-      height: 50px;
-      border: 1px solid var(--border);
-      background: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      position: relative;
-      border-radius: 50%;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    }
-
-    .float-btn:hover {
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-      transform: translateY(-4px);
-    }
-
-    .float-btn:active {
-      transform: translateY(0) scale(0.95);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-    }
-
-    .refresh-btn {
-      color: var(--primary);
-    }
-
-    .refresh-btn:hover {
-      color: var(--primary-hover);
-      background: var(--primary-light);
-    }
-
-    .delete-all-btn {
-      color: #ef4444;
-    }
-
-    .delete-all-btn:hover {
-      color: #dc2626;
-      background: #fef2f2;
-    }
-
-    .save-btn {
-      position: fixed;
-      right: 24px;
-      bottom: 24px;
-      background: #10b981;
-      color: white;
-      border: none;
-    }
-
-    .save-btn:hover {
-      background: #059669;
-      color: white;
-    }
-
-    /* 响应式设计 */
-    @media (max-width: 1024px) {
-      .sidebar {
-        width: 200px;
-      }
-      
-      .action-bar {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      
-      .divider {
-        display: none;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .sidebar {
-        position: fixed;
-        left: -240px;
-        z-index: 1000;
-        transition: left 0.3s ease;
-      }
-      
-      .sidebar.open {
-        left: 0;
-      }
-      
-      .content-header {
-        padding: 16px 20px;
-      }
-      
-      .content-body {
-        padding: 16px 20px;
-      }
-    }
-  </style>
-  <script>
-    // 初始化全局变量
-    const { ipcRenderer } = require('electron');
-    // 将 ipcRenderer 设为全局变量，避免重复声明
-    window.ipcRenderer = ipcRenderer;
-  </script>
-  <script>
-    // 加载 ConfigManager 并设为全局变量
-    const ConfigManager = require('./js/configManager');
-    window.ConfigManager = ConfigManager;
-    
-    // 加载 CONSTANTS 并设为全局变量（供浏览器环境使用）
-    const CONSTANTS = require('./js/constants');
-    window.CONSTANTS = CONSTANTS;
-    
-    // 加载 axios 并设为全局变量
-    const axios = require('axios');
-    window.axios = axios;
-  </script>
-  <script src="js/filePathManager.js"></script>
-  <script src="js/domainManager.js"></script>
-  <script src="js/accountQuery.js"></script>
-  <script>
-    // 验证 AccountQuery 模块是否正确加载
-    console.log('=== AccountQuery 模块加载检查 ===');
-    console.log('window.AccountQuery 类型:', typeof window.AccountQuery);
-    console.log('window.axios 类型:', typeof window.axios);
-    console.log('window.CONSTANTS 类型:', typeof window.CONSTANTS);
-    
-    if (typeof window.AccountQuery === 'undefined') {
-      console.error('❌ AccountQuery 模块加载失败');
-      console.error('请检查 js/accountQuery.js 文件是否存在语法错误');
-    } else {
-      console.log('✅ AccountQuery 模块加载成功');
-      console.log('AccountQuery 对象:', window.AccountQuery);
-      
-      // 测试依赖加载
-      try {
-        if (window.AccountQuery.queryAccount) {
-          console.log('✅ queryAccount 方法存在');
-        }
-      } catch (e) {
-        console.error('❌ 测试 AccountQuery 方法失败:', e);
-      }
-    }
-    console.log('=== 检查完成 ===');
-  </script>
-  <script src="js/accountManager.js"></script>
-  <script src="js/accountSwitcher.js"></script>
-  <script src="js/currentAccountDetector.js"></script>
-  <script src="js/autoBindCard.js"></script>
+  <title>大魏注册 6.4.1</title>
+  <!-- Modular CSS -->
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components/button.css">
+  <link rel="stylesheet" href="css/components/form.css">
+  <link rel="stylesheet" href="css/components/card.css">
+  <link rel="stylesheet" href="css/components/table.css">
+  <link rel="stylesheet" href="css/components/modal.css">
+  <link rel="stylesheet" href="css/components/badge.css">
+  <link rel="stylesheet" href="css/views/accounts.css">
+  <link rel="stylesheet" href="css/views/pool.css">
+  <link rel="stylesheet" href="css/views/dashboard.css">
+  <link rel="stylesheet" href="css/views/tutorial.css">
+  <link rel="stylesheet" href="css/views/settings.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <!-- All CSS now served from css/ directory -->
 </head>
 <body>
   <div class="app-container">
@@ -2869,40 +34,59 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="app-logo">
-          <div class="app-logo-icon"><img src="https://windsurf.com/favicon.png" alt="Windsurf"></div>
-          <div class="app-logo-text">Windsurf Tool</div>
+          <div class="app-logo-icon" aria-hidden="true"></div>
+          <div class="brand-stack">
+            <div class="brand-kicker">Dawei Register</div>
+            <div class="app-logo-text">大魏注册</div>
+          </div>
         </div>
-        <div class="app-version">批量注册 一键切号 获取绑卡链接</div>
+        <div class="app-version">账号注册、无感切号、绑卡执行与 Codex 管理统一工作台</div>
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-item active" onclick="switchView('register')">
+        <div class="sidebar-section-label">核心工作区</div>
+        <button class="nav-item" data-view="dashboard" onclick="switchView('dashboard')">
+          <i data-lucide="layout-dashboard" class="nav-item-icon"></i>
+          <span>全局概览</span>
+        </button>
+        <button class="nav-item active" data-view="register" onclick="switchView('register')">
           <i data-lucide="users" class="nav-item-icon"></i>
-          <span>账号管理</span>
+          <span>账号中心</span>
         </button>
-        <button class="nav-item" onclick="openBatchRegisterModal()">
-          <i data-lucide="zap" class="nav-item-icon"></i>
-          <span>批量注册</span>
-        </button>
-        <button class="nav-item" onclick="switchView('autoBindCard')">
+        <button class="nav-item" data-view="autoBindCard" onclick="switchView('autoBindCard')">
           <i data-lucide="credit-card" class="nav-item-icon"></i>
           <span>自动绑卡</span>
         </button>
-        <button class="nav-item" onclick="switchView('settings')">
+        <button class="nav-item" data-view="codexManage" onclick="switchView('codexManage')">
+          <i data-lucide="bot" class="nav-item-icon"></i>
+          <span>Codex 中心</span>
+        </button>
+        <button class="nav-item" data-view="settings" onclick="switchView('settings')">
           <i data-lucide="settings" class="nav-item-icon"></i>
           <span>系统设置</span>
         </button>
-        <button class="nav-item" onclick="switchView('tutorial')">
+        <button class="nav-item" data-view="tutorial" onclick="switchView('tutorial')">
           <i data-lucide="book-open" class="nav-item-icon"></i>
-          <span>使用教程</span>
+          <span>使用帮助</span>
         </button>
-        <button class="nav-item" onclick="openExternalLink('https://pay.ldxp.cn/shop/windsurftool')" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;">
+        <div class="sidebar-section-label" style="margin-top: 14px;">渠道网关</div>
+        <button class="nav-item" data-view="pool" onclick="switchView('pool')">
+          <i data-lucide="database" class="nav-item-icon"></i>
+          <span>号池管理</span>
+        </button>
+        <button class="nav-item" data-view="gateway" onclick="switchView('gateway')">
+          <i data-lucide="radio" class="nav-item-icon"></i>
+          <span>渠道总控</span>
+        </button>
+        <div class="sidebar-section-label" style="margin-top: 14px;">扩展入口</div>
+        <button class="nav-item nav-item-pro" onclick="openExternalLink('https://pay.ldxp.cn/shop/windsurftool')">
           <i data-lucide="shopping-cart" class="nav-item-icon"></i>
           <span>购买Pro账号</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
+        <div class="footer-meta">默认首页聚焦账号工作流，批量注册入口已合并到账号中心，避免主导航过载。</div>
         <div class="footer-links">
           <a href="https://github.com/crispvibe/Windsurf-Tool" class="footer-link" target="_blank">
             <i data-lucide="github" style="width:14px;height:14px;"></i> GitHub
@@ -2919,36 +103,71 @@
       
       <!-- 账号管理视图 (紧凑布局) -->
       <div id="register" class="view-content active">
-        
-        <!-- 紧凑顶部控制栏 -->
-        <div id="topInfoRow" class="compact-header">
-          
-          <!-- 左侧：当前登录信息 -->
-          <div class="header-left">
-            <div class="current-login-card">
-              <div class="login-status-dot" id="loginStatusDot"></div>
-              <div class="login-info">
-                <span id="currentAccountEmail" class="login-email">检测中...</span>
-                <span id="currentAccountType" class="login-type-tag">--</span>
+        <div class="page-header page-header-home">
+          <div>
+            <div class="page-header-eyebrow">账号工作台</div>
+            <div class="page-header-title">大魏注册</div>
+            <div class="page-header-desc">把账号状态、常用动作和账号列表重新收敛到同一条工作流里。首页只保留判断现状和执行管理动作需要的信息，不再用重复卡片分散注意力。</div>
+          </div>
+          <div class="page-header-meta">
+            <div class="page-meta-chip">账号池管理</div>
+            <div class="page-meta-chip">批量注册</div>
+            <div class="page-meta-chip">Token 工作流</div>
+          </div>
+        </div>
+
+        <div class="workspace-shell">
+          <section class="workspace-main">
+            <div class="section-card intro-card">
+              <div class="section-heading">
+                <div>
+                  <h2>账号中心</h2>
+                  <p>列表是主任务区，工具条只保留一套。你可以在这里完成搜索、导入、导出、批量 Token、批量注册和全量刷新，不再在首页首屏看到重复入口。</p>
+                </div>
+                <span class="section-tag">统一主流程</span>
               </div>
-              <div class="login-divider"></div>
-              <div class="credits-section">
-                <span class="credits-label">已用</span>
-                <span id="currentAccountUsedCredits" class="credits-used-num">--</span>
-                <span class="credits-slash">/</span>
-                <span id="currentAccountCredits" class="credits-total-num">--</span>
+              <div class="intro-grid">
+                <div class="intro-point">
+                  <strong>先判断状态</strong>
+                  <span>右侧固定展示当前登录账号、到期信息和账号池摘要，进来先知道现在是什么状态。</span>
+                </div>
+                <div class="intro-point">
+                  <strong>再执行动作</strong>
+                  <span>高频按钮全部收敛在列表上方，同一位置完成添加、导出、注册、刷新和批量 Token。</span>
+                </div>
+                <div class="intro-point">
+                  <strong>最后处理明细</strong>
+                  <span>账号列表回到页面中心，不再被说明卡片和重复按钮挤压视线。</span>
+                </div>
               </div>
             </div>
-            <!-- 隐藏元素 -->
-            <span id="totalCount" style="display:none">0</span>
-            <span id="activeCount" style="display:none">0</span>
-            <span id="currentAccountExpires" style="display:none">--</span>
-            <span id="expiredCount" style="display:none">0</span>
-            <span id="creditsProgressBar" style="display:none"></span>
+
+            <div class="section-card section-card-accounts">
+              <div class="section-heading tight">
+                <div>
+                  <h2>账号列表与操作</h2>
+                  <p>常用管理动作与列表同区显示，减少来回滚动与重复入口。</p>
+                </div>
+                <span class="section-tag">主任务区</span>
+              </div>
+
+        <div id="topInfoRow" class="compact-header actions-toolbar">
+          <div class="header-left">
+            <div class="toolbar-context">
+              <strong>操作工具条</strong>
+              <span>支持手动添加、文件导入、分类导出、批量获取 Token、批量注册与全量刷新。</span>
+            </div>
           </div>
 
           <!-- 右侧：操作区 -->
           <div class="header-right">
+            <div class="account-scope-switch" role="tablist" aria-label="账号显示范围">
+              <button id="accountScopeTodayBtn" class="account-scope-btn active" type="button" onclick="AccountManager.setListScope('today')">今天</button>
+              <button id="accountScopeAllBtn" class="account-scope-btn" type="button" onclick="AccountManager.setListScope('all')">全部</button>
+            </div>
+
+            <span id="accountScopeSummary" class="account-scope-summary">仅显示今天申请的账号 0 / 0</span>
+
             <!-- 搜索按钮 -->
             <button class="compact-btn compact-btn-ghost icon-only-btn" onclick="showSearchAccountModal()" title="搜索账号">
               <i data-lucide="search" style="width: 14px; height: 14px;"></i>
@@ -2987,6 +206,10 @@
             <button class="compact-btn compact-btn-ghost" onclick="batchGetAllTokens()" id="batchGetAllTokensBtn">
               <i data-lucide="key" style="width: 14px; height: 14px;"></i> Token
             </button>
+
+            <button class="compact-btn compact-btn-ghost" onclick="openBatchRegisterModal()">
+              <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 注册
+            </button>
             
             <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
 
@@ -3001,8 +224,8 @@
         </div>
 
         <!-- 进度条区域 -->
-        <div id="registerProgress" style="padding: 0; height: 4px; background: #e2e8f0; display: none;">
-          <div class="progress-fill" id="progressFill" style="height: 100%; background: var(--primary); width: 0; transition: width 0.3s;"></div>
+        <div id="registerProgress" style="padding: 0; height: 4px; display: none;">
+          <div class="progress-fill" id="progressFill" style="height: 100%; width: 0; transition: width 0.3s;"></div>
           <div id="progressText" style="display:none">0%</div>
           <div id="registerStatus" style="display:none"></div>
         </div>
@@ -3013,11 +236,98 @@
             <!-- 列表内容由 JS 生成 -->
           </div>
         </div>
+
+            </div>
+          </section>
+
+          <aside class="workspace-side">
+            <div class="section-card status-panel">
+              <div class="section-heading tight">
+                <div>
+                  <h2>当前登录</h2>
+                  <p>实时检测当前本机正在使用的账号与配额状态。</p>
+                </div>
+                <span class="section-tag">实时</span>
+              </div>
+
+              <div class="current-login-card dashboard-login-card">
+                <div class="login-status-dot" id="loginStatusDot"></div>
+                <div class="login-info">
+                  <span id="currentAccountEmail" class="login-email">检测中...</span>
+                  <span id="currentAccountType" class="login-type-tag">--</span>
+                </div>
+                <div class="login-divider"></div>
+                <div class="credits-section">
+                  <span class="credits-label">已用</span>
+                  <span id="currentAccountUsedCredits" class="credits-used-num">--</span>
+                  <span class="credits-slash">/</span>
+                  <span id="currentAccountCredits" class="credits-total-num">--</span>
+                </div>
+              </div>
+
+              <div class="status-expire-box">
+                <div class="status-expire-label">当前到期时间</div>
+                <div id="currentAccountExpires" class="status-expire-value">--</div>
+              </div>
+
+              <span id="creditsProgressBar" style="display:none"></span>
+              <div id="warningCount" class="compat-hidden">0</div>
+            </div>
+
+            <div class="section-card metrics-panel">
+              <div class="section-heading tight">
+                <div>
+                  <h2>账号池概览</h2>
+                  <p>快速判断整体体量、可用量和需要优先处理的异常量。</p>
+                </div>
+                <span class="section-tag">摘要</span>
+              </div>
+              <div class="summary-grid">
+                <div class="stat-card">
+                  <div class="stat-card-label">账号总数</div>
+                  <div id="totalCount" class="stat-card-value">0</div>
+                  <div class="stat-card-note">当前账号池内已记录的全部账号</div>
+                </div>
+
+                <div class="stat-card">
+                  <div class="stat-card-label">可用账号</div>
+                  <div id="activeCount" class="stat-card-value">0</div>
+                  <div class="stat-card-note">状态正常、可参与切换或查询</div>
+                </div>
+
+                <div class="stat-card">
+                  <div class="stat-card-label">到期提醒</div>
+                  <div id="expiredCount" class="stat-card-value">0</div>
+                  <div class="stat-card-note">需要优先处理的到期或异常账号</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <div class="section-heading tight">
+                <div>
+                  <h2>工作顺序</h2>
+                  <p>进入首页后的推荐阅读与操作路径。</p>
+                </div>
+              </div>
+              <ol class="process-list">
+                <li>先看当前登录账号和到期时间，判断是否需要切号。</li>
+                <li>再通过工具条执行导入、导出、批量注册或批量 Token。</li>
+                <li>最后在账号列表里处理具体账号的明细动作。</li>
+              </ol>
+            </div>
+          </aside>
+        </div>
       </div>
 
       <!-- 自动绑卡视图 -->
       <div id="autoBindCard" class="view-content">
-        <div class="settings-wrapper">
+        <div class="page-header">
+          <div class="page-header-title">自动绑卡</div>
+          <div class="page-header-desc">将账号选择、虚拟卡配置、账单信息和执行状态拆成更清晰的左右工作区，减少长表单滚动带来的干扰。</div>
+        </div>
+        <div class="settings-wrapper settings-layout">
+          <div class="settings-main-column">
           
           <!-- 账号选择 -->
           <div>
@@ -3036,10 +346,10 @@
                 <div class="setting-input-wrapper">
                   <label class="setting-label">填写模式</label>
                   <div style="display: flex; gap: 8px;">
-                    <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 10px; border-radius: 8px; border: 2px solid #007aff; background: #f0f7ff;" id="manualModeLabel">
+                    <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 10px; border-radius: 8px; border: 2px solid #6366f1; background: #eef2ff;" id="manualModeLabel">
                       <input type="radio" name="fillMode" value="manual" checked onchange="AutoBindCard.switchFillMode('manual')" style="display: none;">
-                      <i data-lucide="mouse-pointer-click" style="width: 14px; height: 14px; color: #007aff;"></i>
-                      <span style="font-size: 13px; color: #007aff; font-weight: 500;">手动填写</span>
+                      <i data-lucide="mouse-pointer-click" style="width: 14px; height: 14px; color: #6366f1;"></i>
+                      <span style="font-size: 13px; color: #6366f1; font-weight: 500;">手动填写</span>
                     </label>
                     <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 10px; border-radius: 8px; border: 2px solid #e2e8f0; background: transparent;" id="autoModeLabel">
                       <input type="radio" name="fillMode" value="auto" onchange="AutoBindCard.switchFillMode('auto')" style="display: none;">
@@ -3076,6 +386,7 @@
                     <span>启动绑卡时将自动生成完整卡号、有效期和CVV</span>
                     <span id="autoBindCardBinLength" style="font-family: monospace; color: #4CAF50;">16/16</span>
                   </div>
+                  <div id="fillModeDesc" class="compat-hidden">手动填写需要人工确认，自动填写会尽可能完成表单输入。</div>
                 </div>
               </div>
               
@@ -3171,7 +482,9 @@
               </div>
             </div>
           </div>
+          </div>
 
+          <aside class="settings-side-column">
           <!-- 操作区 -->
           <div>
             <div class="settings-card-new" style="padding: 16px;">
@@ -3191,8 +504,7 @@
               </div>
             </div>
           </div>
-          
-          <div style="height: 60px;"></div>
+          </aside>
 
           <!-- 悬浮保存按钮 -->
           <button class="save-config-btn autoBindSaveBtn" onclick="AutoBindCard.saveViewConfig()" title="保存绑卡配置" style="display: none;">
@@ -3202,9 +514,163 @@
         </div>
       </div>
 
+      <!-- Codex 管理视图 -->
+      <div id="codexManage" class="view-content">
+        <div class="page-header">
+          <div class="page-header-title">Codex 管理</div>
+          <div class="page-header-desc">把注册配置、实时日志、账号池和手动补录分成左右两列，执行过程和资产状态能同时看到。</div>
+        </div>
+        <div class="settings-wrapper settings-layout">
+          <div class="settings-main-column">
+
+          <!-- Codex 配置 -->
+          <div>
+            <div class="settings-section-title">
+              <i data-lucide="settings-2" style="width: 14px; height: 14px;"></i>
+              Codex 注册配置
+            </div>
+            <div class="settings-card-new">
+              <!-- 邮箱来源提示 -->
+              <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(15, 139, 141, 0.06); border: 1px solid rgba(15, 139, 141, 0.15); border-radius: 8px; margin-bottom: 14px;">
+                <i data-lucide="mail" style="width: 16px; height: 16px; color: var(--primary); flex-shrink: 0;"></i>
+                <span style="font-size: 13px; color: var(--text-secondary);">注册邮箱使用「<a href="#" onclick="switchTab('settings'); return false;" style="color: var(--primary); text-decoration: none; font-weight: 500;">系统设置</a>」中已配置的域名和 IMAP 邮箱，无需额外配置</span>
+              </div>
+              <div class="setting-row">
+                <div class="setting-input-wrapper">
+                  <label class="setting-label">代理地址</label>
+                  <input type="text" id="codexProxy" placeholder="127.0.0.1:7897 (可选)">
+                  <div class="setting-helper">HTTP 代理，留空不使用</div>
+                </div>
+                <div class="setting-input-wrapper">
+                  <label class="setting-label">注册数量</label>
+                  <input type="number" id="codexRegisterCount" value="1" min="1" max="100">
+                </div>
+                <div class="setting-input-wrapper">
+                  <label class="setting-label">OAuth Token</label>
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="codexEnableOAuth" checked>
+                    <span style="font-size: 13px;">注册后自动获取 Codex Token</span>
+                  </label>
+                </div>
+              </div>
+              <div style="display: flex; gap: 12px; margin-top: 12px;">
+                <button class="btn btn-primary" id="codexStartRegisterBtn" onclick="CodexManager.startBatchRegister()">
+                  <i data-lucide="play" style="width: 14px; height: 14px;"></i> 开始批量注册
+                </button>
+                <button class="btn btn-secondary" id="codexCancelRegisterBtn" onclick="CodexManager.cancelRegister()" style="display: none;">
+                  <i data-lucide="square" style="width: 14px; height: 14px;"></i> 取消注册
+                </button>
+                <button class="btn btn-secondary" onclick="CodexManager.saveConfig()">
+                  <i data-lucide="save" style="width: 14px; height: 14px;"></i> 保存配置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 注册日志 -->
+          <div>
+            <div class="settings-section-title">
+              <i data-lucide="terminal" style="width: 14px; height: 14px;"></i>
+              注册日志
+              <div style="margin-left: auto;" id="codexRegisterProgress"></div>
+            </div>
+            <div class="settings-card-new" style="padding: 0;">
+              <div id="codexRegisterLog" style="background: #1d1d1f; border-radius: 8px; padding: 12px; height: 200px; overflow-y: auto; font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; line-height: 1.6; color: #a0a0a0;">
+                <div style="color: #666;">等待操作...</div>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <aside class="settings-side-column">
+          <!-- 无感切号 -->
+          <div>
+            <div class="settings-section-title">
+              <i data-lucide="repeat" style="width: 14px; height: 14px;"></i>
+              无感切号（Codex 账号池）
+              <div style="margin-left: auto; font-size: 12px; font-weight: 400; color: #86868b;" id="codexPoolSummary">
+                加载中...
+              </div>
+            </div>
+            <div class="settings-card-new">
+              <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="CodexManager.getActiveToken()" style="font-size: 12px; padding: 6px 14px;">
+                  <i data-lucide="key" style="width: 12px; height: 12px;"></i> 获取当前 Token
+                </button>
+                <button class="btn btn-secondary" onclick="CodexManager.switchNext()" style="font-size: 12px; padding: 6px 14px;">
+                  <i data-lucide="skip-forward" style="width: 12px; height: 12px;"></i> 切换下一个
+                </button>
+                <button class="btn btn-secondary" onclick="CodexManager.resetAllStatus()" style="font-size: 12px; padding: 6px 14px;">
+                  <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i> 重置状态
+                </button>
+                <button class="btn btn-secondary" onclick="CodexManager.removeAllAccounts()" style="font-size: 12px; padding: 6px 14px; color: #ff3b30;">
+                  <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> 清空账号池
+                </button>
+              </div>
+
+              <!-- 当前 Token 展示 -->
+              <div id="codexCurrentToken" style="display: none; margin-bottom: 12px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; color: #0369a1; margin-bottom: 4px; font-weight: 600;">当前活跃账号</div>
+                <div id="codexCurrentEmail" style="font-size: 13px; color: #1d1d1f; margin-bottom: 6px;"></div>
+                <div style="position: relative;">
+                  <textarea id="codexCurrentTokenText" readonly style="width: 100%; height: 60px; font-family: monospace; font-size: 11px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; resize: none; background: #fff;"></textarea>
+                  <button onclick="CodexManager.copyToken()" style="position: absolute; top: 4px; right: 4px; background: #6366f1; color: white; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px;">复制</button>
+                </div>
+              </div>
+
+              <!-- 账号池列表 -->
+              <div id="codexAccountList" style="max-height: 300px; overflow-y: auto;">
+                <div style="text-align: center; color: #999; padding: 20px; font-size: 13px;">暂无账号</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 手动添加账号 -->
+          <div>
+            <div class="settings-section-title">
+              <i data-lucide="plus-circle" style="width: 14px; height: 14px;"></i>
+              手动添加 Codex 账号
+            </div>
+            <div class="settings-card-new">
+              <div class="setting-row">
+                <div class="setting-input-wrapper">
+                  <label class="setting-label">邮箱</label>
+                  <input type="text" id="codexAddEmail" placeholder="user@example.com">
+                </div>
+                <div class="setting-input-wrapper">
+                  <label class="setting-label">密码</label>
+                  <input type="text" id="codexAddPassword" placeholder="ChatGPT 密码">
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-input-wrapper" style="flex: 2;">
+                  <label class="setting-label">Access Token</label>
+                  <input type="text" id="codexAddAccessToken" placeholder="eyJhb... (可选)">
+                </div>
+                <div class="setting-input-wrapper" style="flex: 2;">
+                  <label class="setting-label">Refresh Token</label>
+                  <input type="text" id="codexAddRefreshToken" placeholder="(可选)">
+                </div>
+              </div>
+              <div style="margin-top: 8px;">
+                <button class="btn btn-primary" onclick="CodexManager.addAccount()" style="font-size: 12px; padding: 6px 14px;">
+                  <i data-lucide="plus" style="width: 12px; height: 12px;"></i> 添加账号
+                </button>
+              </div>
+            </div>
+          </div>
+          </aside>
+        </div>
+      </div>
+
       <!-- 系统设置视图 -->
       <div id="settings" class="view-content">
-        <div class="settings-wrapper">
+        <div class="page-header">
+          <div class="page-header-title">系统设置</div>
+          <div class="page-header-desc">按“注册资源、运行策略、环境信息”重新组织设置区，避免所有配置都挤在同一条滚动流里。</div>
+        </div>
+        <div class="settings-wrapper settings-layout" id="settingsView">
+          <div class="settings-main-column">
             
             <!-- 基础设置 -->
             <div>
@@ -3290,9 +756,14 @@
                     <i data-lucide="wifi" style="width: 14px; height: 14px;"></i> 测试连接
                   </button>
                 </div>
+                <input type="hidden" id="emailProvider" value="qq">
+                <input type="hidden" id="imapHost" value="imap.qq.com">
+                <input type="hidden" id="imapPort" value="993">
               </div>
             </div>
+          </div>
 
+          <aside class="settings-side-column">
             <!-- 系统路径与环境 -->
             <div>
               <div class="settings-section-title">
@@ -3310,6 +781,8 @@
                   <input type="text" id="configFilePath" readonly class="path-input-readonly" placeholder="加载中...">
                 </div>
 
+                <input type="text" id="configPath" class="compat-hidden" aria-hidden="true">
+
                 <div class="path-display-group">
                   <label class="setting-label" style="font-size: 12px; color: #64748b;">账号存储文件</label>
                   <input type="text" id="accountsFilePath" readonly class="path-input-readonly" placeholder="加载中...">
@@ -3321,10 +794,10 @@
                 </div>
               </div>
             </div>
+          </aside>
 
-            <div id="settingsStatus"></div>
-            <div style="height: 60px;"></div>
-          </div>
+          <div id="settingsStatus"></div>
+        </div>
 
           <!-- 悬浮保存按钮 -->
           <button class="save-config-btn" onclick="saveSettings()" title="保存所有配置" style="display: none;">
@@ -3333,8 +806,103 @@
           </button>
         </div>
 
+      <!-- 全局概览视图 -->
+      <div id="dashboard" class="view-content">
+        <div class="page-header">
+          <div>
+            <div class="page-header-eyebrow">系统总览</div>
+            <div class="page-header-title">全局仪表盘</div>
+            <div class="page-header-desc">一眼掌控号池状态、网关流量、异常事件，日常运维只看这一个面板。</div>
+          </div>
+        </div>
+        <div id="dashboard-content"></div>
+      </div>
+
+      <!-- 号池管理视图 -->
+      <div id="pool" class="view-content">
+        <div class="page-header">
+          <div>
+            <div class="page-header-eyebrow">统一账号池</div>
+            <div class="page-header-title">号池管理</div>
+            <div class="page-header-desc">在同一个池子里管理 Windsurf、Codex 账号和各家 LLM API Key。每个账号有完整的状态生命周期和健康度评分。</div>
+          </div>
+          <div class="page-header-meta">
+            <div class="page-meta-chip">状态管理</div>
+            <div class="page-meta-chip">健康度评分</div>
+            <div class="page-meta-chip">API Key 管理</div>
+          </div>
+        </div>
+
+        <div id="pool-stats"></div>
+        <div id="pool-filter-bar" class="pool-filter-bar"></div>
+        <div id="pool-content" class="pool-grid"></div>
+      </div>
+
+      <!-- API 网关管理视图 -->
+      <div id="gateway" class="view-content">
+        <div class="page-header">
+          <div>
+            <div class="page-header-eyebrow">AI 网关工作台</div>
+            <div class="page-header-title">渠道网关</div>
+            <div class="page-header-desc">统一代理多家 AI 供应商，自动负载均衡和故障转移。用任意 SDK 接入，请求通过本地网关路由到最优渠道。</div>
+          </div>
+          <div class="page-header-meta">
+            <div class="page-meta-chip">多渠道代理</div>
+            <div class="page-meta-chip">负载均衡</div>
+            <div class="page-meta-chip">成本追踪</div>
+          </div>
+        </div>
+
+        <div class="section-card" style="padding: 0; overflow: hidden; margin-bottom: 16px;">
+          <div class="account-scope-switch" role="tablist" style="display: flex; gap: 0; width: 100%; border-bottom: 1px solid var(--border-light);">
+            <button data-gateway-tab="dashboard" class="account-scope-btn active" style="flex: 1; padding: 10px 0; font-size: 13px; border-bottom: 2px solid transparent;">总览</button>
+            <button data-gateway-tab="channels" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">渠道</button>
+            <button data-gateway-tab="models" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">模型</button>
+            <button data-gateway-tab="api-keys" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">密钥</button>
+            <button data-gateway-tab="requests" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">请求</button>
+            <button data-gateway-tab="traces" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">追踪</button>
+            <button data-gateway-tab="threads" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">线程</button>
+            <button data-gateway-tab="settings" class="account-scope-btn" style="flex: 1; padding: 10px 0; font-size: 13px;">设置</button>
+          </div>
+        </div>
+
+        <div id="gateway-content" style="min-height: 400px;">
+          <div style="display: flex; align-items: center; justify-content: center; height: 200px; color: var(--text-muted);">
+            正在加载网关数据…
+          </div>
+        </div>
+      </div>
+
       <!-- 使用教程视图 -->
       <div id="tutorial" class="view-content">
+        <div class="page-header">
+          <div class="page-header-title">使用帮助</div>
+          <div class="page-header-desc">把最常用的上手路径提前展示，帮助页只负责说明，不再承担主流程入口。</div>
+        </div>
+        <div class="help-layout">
+        <section class="section-card help-intro">
+          <div class="section-heading">
+            <div>
+              <h2>建议阅读顺序</h2>
+              <p>帮助页只保留上手路径和详细说明，不再承担首页导流。先完成资源配置，再回到账号中心或执行页处理具体任务。</p>
+            </div>
+            <span class="section-tag">快速上手</span>
+          </div>
+          <div class="help-pill-list">
+            <div class="help-pill">
+              <strong>先配资源</strong>
+              <span>在系统设置里完成域名和 QQ 邮箱 IMAP，注册和验证码流程会直接复用这些配置。</span>
+            </div>
+            <div class="help-pill">
+              <strong>回到账号中心</strong>
+              <span>账号中心已整合搜索、导入导出、批量 Token 和批量注册，是默认主工作台。</span>
+            </div>
+            <div class="help-pill">
+              <strong>进入执行页</strong>
+              <span>自动绑卡与 Codex 中心分别处理执行动作和账号资产，状态会固定在右侧便于观察。</span>
+            </div>
+          </div>
+        </section>
         <article class="tutorial-article">
             <h1>使用教程</h1>
             
@@ -3408,6 +976,7 @@
             </section>
           </article>
         </div>
+        </div>
 
     </main>
   </div>
@@ -3417,7 +986,7 @@
     <div class="modal-dialog register-modal" onclick="event.stopPropagation()">
       <div class="register-modal-header">
         <div class="modal-title-row">
-          <i data-lucide="zap" style="width: 24px; height: 24px; color: #007aff;"></i>
+          <i data-lucide="zap" style="width: 24px; height: 24px; color: #6366f1;"></i>
           <h3 class="modal-title">批量注册</h3>
         </div>
         <button class="modal-close-btn" onclick="closeBatchRegisterModal()" title="关闭">
@@ -3470,9 +1039,9 @@
             <span style="color: #d4d4d4; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">实时日志</span>
             <button 
               onclick="copyRegisterLog()" 
-              style="background: #007aff; border: none; color: white; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0, 122, 255, 0.3);"
-              onmouseover="this.style.background='#0051d5'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 3px 6px rgba(0, 122, 255, 0.4)'"
-              onmouseout="this.style.background='#007aff'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 122, 255, 0.3)'"
+              style="background: #6366f1; border: none; color: white; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);"
+              onmouseover="this.style.background='#4f46e5'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 3px 6px rgba(99, 102, 241, 0.4)'"
+              onmouseout="this.style.background='#6366f1'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(99, 102, 241, 0.3)'"
               title="复制全部日志到剪贴板">
               <i data-lucide="copy" style="width: 13px; height: 13px;"></i>
               复制日志
@@ -3501,7 +1070,7 @@
     <div class="modal-dialog modern-modal" style="max-width: 360px;" onclick="event.stopPropagation()">
       <div class="modern-modal-header" style="padding: 14px 16px;">
         <div class="modal-title-row">
-          <i data-lucide="key" style="width: 16px; height: 16px; color: #007aff;"></i>
+          <i data-lucide="key" style="width: 16px; height: 16px; color: #6366f1;"></i>
           <h3 style="margin: 0; font-size: 14px; font-weight: 600;">获取 Token</h3>
         </div>
         <button class="modal-close-btn" onclick="closeLoginTokenModal()" style="width: 24px; height: 24px;">
@@ -3513,7 +1082,7 @@
         <!-- 账号信息 -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 12px;">
           <span id="loginTokenEmail" style="color: var(--text-main); font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</span>
-          <span id="loginTokenStatus" style="color: #007aff; font-weight: 600;">等待中</span>
+          <span id="loginTokenStatus" style="color: #6366f1; font-weight: 600;">等待中</span>
         </div>
         
         <!-- 日志显示区域 -->
@@ -3533,7 +1102,7 @@
     <div class="modal-dialog modern-modal" onclick="event.stopPropagation()">
       <div class="modern-modal-header">
         <div class="modal-title-row">
-          <i data-lucide="user-plus" style="width: 24px; height: 24px; color: #007aff;"></i>
+          <i data-lucide="user-plus" style="width: 24px; height: 24px; color: #6366f1;"></i>
           <h3 class="modal-title">添加账号</h3>
         </div>
         <button class="modal-close-btn" onclick="hideAddAccountForm()" title="关闭">
@@ -3551,6 +1120,7 @@
           <label>密码</label>
           <input type="text" id="manualPassword" placeholder="请输入密码" autocomplete="off">
         </div>
+        <input type="text" id="manualApiKey" class="compat-hidden" aria-hidden="true">
       </div>
       
       <div class="modern-modal-footer">
@@ -3570,7 +1140,7 @@
     <div class="modal-dialog modern-modal" style="max-width: 500px;" onclick="event.stopPropagation()">
       <div class="modern-modal-header">
         <div class="modal-title-row">
-          <i data-lucide="search" style="width: 24px; height: 24px; color: #007aff;"></i>
+          <i data-lucide="search" style="width: 24px; height: 24px; color: #6366f1;"></i>
           <h3 class="modal-title">搜索账号</h3>
         </div>
         <button class="modal-close-btn" onclick="hideSearchAccountModal()" title="关闭">
@@ -3670,9 +1240,9 @@
             <div style="font-size: 11px; color: #86868b; margin-bottom: 6px; font-weight: 500; text-transform: uppercase;">当前版本</div>
             <div style="font-size: 18px; font-weight: 700; color: #1d1d1f;" id="currentVersionDisplay">-</div>
           </div>
-          <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; text-align: center; border: 1px solid #007aff;">
-            <div style="font-size: 11px; color: #007aff; margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">最新版本</div>
-            <div style="font-size: 18px; font-weight: 700; color: #007aff;" id="latestVersionDisplay">-</div>
+          <div style="background: #eef2ff; padding: 16px; border-radius: 8px; text-align: center; border: 1px solid #6366f1;">
+            <div style="font-size: 11px; color: #6366f1; margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">最新版本</div>
+            <div style="font-size: 18px; font-weight: 700; color: #6366f1;" id="latestVersionDisplay">-</div>
           </div>
         </div>
         
@@ -3700,7 +1270,7 @@
     <div class="modal-dialog modern-modal" style="max-width: 360px;" onclick="event.stopPropagation()">
       <div class="modern-modal-header" style="padding: 14px 16px;">
         <div class="modal-title-row">
-          <i data-lucide="key" style="width: 16px; height: 16px; color: #007aff;"></i>
+          <i data-lucide="key" style="width: 16px; height: 16px; color: #6366f1;"></i>
           <h3 style="margin: 0; font-size: 14px; font-weight: 600;">获取 Token</h3>
         </div>
         <button class="modal-close-btn" onclick="closeBatchTokenProgressModal()" style="width: 24px; height: 24px;">
@@ -3713,10 +1283,10 @@
         <div style="margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
             <span id="batchTokenCurrentEmail" style="color: var(--text-main); font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">等待开始...</span>
-            <span id="batchTokenProgressText" style="color: #007aff; font-weight: 600;">0/0</span>
+            <span id="batchTokenProgressText" style="color: #6366f1; font-weight: 600;">0/0</span>
           </div>
           <div style="height: 4px; background: #e5e5ea; border-radius: 2px; overflow: hidden;">
-            <div id="batchTokenProgressFill" style="height: 100%; background: #007aff; transition: width 0.3s; width: 0%;"></div>
+            <div id="batchTokenProgressFill" style="height: 100%; background: #6366f1; transition: width 0.3s; width: 0%;"></div>
           </div>
         </div>
 
@@ -3753,500 +1323,6 @@
     </div>
   </div>
 
-  <script>
-    // 打开 QQ 群函数
-    function openQQGroup() {
-      // 使用全局的 shell（在 renderer.js 中已声明）
-      if (typeof shell === 'undefined') {
-        const { shell: electronShell } = require('electron');
-        electronShell.openExternal('https://qm.qq.com/q/1W3jvnDoak');
-      } else {
-        shell.openExternal('https://qm.qq.com/q/1W3jvnDoak');
-      }
-      
-      // 显示提示
-      if (typeof showToast !== 'undefined') {
-        showToast('正在打开 QQ 群...', 'info');
-      }
-    }
-
-    
-    // 视图切换函数
-    function switchView(viewName) {
-      // 更新导航项激活状态
-      document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active');
-      });
-      
-      // 安全地添加激活状态
-      if (event && event.target) {
-        const navItem = event.target.closest('.nav-item');
-        if (navItem) {
-          navItem.classList.add('active');
-        }
-      }
-      
-      // 更新视图内容
-      document.querySelectorAll('.view-content').forEach(view => {
-        view.classList.remove('active');
-      });
-      
-      const targetView = document.getElementById(viewName);
-      if (targetView) {
-        targetView.classList.add('active');
-      }
-      
-      // 调用原有的switchTab逻辑来处理页面特定的初始化
-      if (typeof window.switchTabLogic === 'function') {
-        window.switchTabLogic(viewName);
-      }
-
-      // 悬浮保存按钮控制
-      const settingsSaveBtn = document.querySelector('#settings .save-config-btn');
-      const autoBindSaveBtn = document.querySelector('.autoBindSaveBtn');
-      
-      // 隐藏所有悬浮按钮
-      if (settingsSaveBtn) settingsSaveBtn.style.display = 'none';
-      if (autoBindSaveBtn) autoBindSaveBtn.style.display = 'none';
-      
-      // 如果切换到设置页面
-      if (viewName === 'settings') {
-        loadConfigPath();
-        if (settingsSaveBtn) settingsSaveBtn.style.display = 'flex';
-        // 重新初始化域名管理器
-        if (typeof initDomainManager === 'function') {
-          initDomainManager();
-        }
-      }
-      
-      // 如果切换到自动绑卡页面，初始化
-      if (viewName === 'autoBindCard') {
-        if (autoBindSaveBtn) autoBindSaveBtn.style.display = 'flex';
-        if (typeof AutoBindCard !== 'undefined' && AutoBindCard.onViewSwitch) {
-          AutoBindCard.onViewSwitch();
-        }
-        // 初始化图标
-        if (typeof lucide !== 'undefined') {
-          lucide.createIcons();
-        }
-      }
-    }
-    
-    // 兼容旧的switchTab函数（保持原有功能）
-    function switchTab(tabName) {
-      // 如果是新UI，使用switchView
-      if (document.querySelector('.app-container')) {
-        switchView(tabName);
-      } else {
-        // 旧UI逻辑（如果需要）
-        document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-        
-        const activeTab = Array.from(document.querySelectorAll('.tab')).find(tab => 
-          tab.getAttribute('onclick')?.includes(tabName)
-        );
-        if (activeTab) activeTab.classList.add('active');
-        
-        const activeContent = document.getElementById(tabName);
-        if (activeContent) activeContent.classList.add('active');
-      }
-    }
-    
-    // 配置文件路径相关函数
-    async function loadConfigPath() {
-      try {
-        const result = await ipcRenderer.invoke('get-config-path');
-        const configPathInput = document.getElementById('configPath');
-        if (configPathInput && result.path) {
-          configPathInput.value = result.path;
-        }
-      } catch (error) {
-        console.error('获取配置文件路径失败:', error);
-      }
-    }
-    
-    async function copyConfigPath() {
-      const configPathInput = document.getElementById('configPath');
-      if (!configPathInput || !configPathInput.value) {
-        showCustomAlert('配置文件路径未加载', 'warning');
-        return;
-      }
-      
-      try {
-        await navigator.clipboard.writeText(configPathInput.value);
-        showCustomAlert('路径已复制到剪贴板', 'success');
-      } catch (error) {
-        // 降级方案：使用传统方法
-        configPathInput.select();
-        document.execCommand('copy');
-        showCustomAlert('路径已复制到剪贴板', 'success');
-      }
-    }
-    
-    async function openConfigFolder() {
-      try {
-        const result = await ipcRenderer.invoke('open-config-folder');
-        if (!result.success) {
-          showCustomAlert('打开文件夹失败: ' + (result.error || '未知错误'), 'error');
-        }
-      } catch (error) {
-        console.error('打开配置文件夹失败:', error);
-        showCustomAlert('打开文件夹失败: ' + error.message, 'error');
-      }
-    }
-    
-    // 打开外部链接
-    function openExternalLink(url) {
-      if (typeof shell !== 'undefined') {
-        shell.openExternal(url);
-      } else if (window.ipcRenderer) {
-        window.ipcRenderer.invoke('open-external-url', url);
-      }
-    }
-    
-    // 批量注册弹窗控制
-    let batchRegisterEscHandler = null;
-    
-    function openBatchRegisterModal() {
-      const modal = document.getElementById('batchRegisterModal');
-      const logEl = document.getElementById('registerLog');
-      
-      // 清空日志
-      if (logEl) {
-        logEl.innerHTML = '';
-      }
-      
-      // 重置统计
-      document.getElementById('modalTotalCount').textContent = '0';
-      document.getElementById('modalSuccessCount').textContent = '0';
-      document.getElementById('modalFailCount').textContent = '0';
-      document.getElementById('modalProgress').textContent = '0%';
-      
-      // 显示配置区域，隐藏进度区域
-      document.getElementById('registerConfigSection').style.display = 'block';
-      document.getElementById('registerStatsSection').style.display = 'none';
-      document.getElementById('registerLogSection').style.display = 'none';
-      document.getElementById('registerFooterSection').style.display = 'none';
-      
-      // 显示弹窗
-      modal.style.display = 'flex';
-      
-      // 添加 ESC 键关闭监听
-      batchRegisterEscHandler = function(e) {
-        if (e.key === 'Escape') {
-          closeBatchRegisterModal();
-        }
-      };
-      document.addEventListener('keydown', batchRegisterEscHandler);
-      
-      // 初始化图标
-      if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-      }
-    }
-    
-    // 开始注册时切换到进度视图
-    function showRegisterProgress() {
-      document.getElementById('registerConfigSection').style.display = 'none';
-      document.getElementById('registerStatsSection').style.display = 'grid';
-      document.getElementById('registerLogSection').style.display = 'block';
-      document.getElementById('registerFooterSection').style.display = 'flex';
-    }
-    
-    function closeBatchRegisterModal() {
-      const modal = document.getElementById('batchRegisterModal');
-      modal.style.display = 'none';
-      
-      // 移除 ESC 键监听
-      if (batchRegisterEscHandler) {
-        document.removeEventListener('keydown', batchRegisterEscHandler);
-        batchRegisterEscHandler = null;
-      }
-    }
-    
-    // 登录获取 Token 弹窗控制
-    function closeLoginTokenModal() {
-      const modal = document.getElementById('loginTokenModal');
-      if (modal) modal.style.display = 'none';
-      
-      // 移除日志监听器
-      if (window.ipcRenderer) {
-        window.ipcRenderer.removeAllListeners('login-log');
-      }
-    }
-    
-    // 复制登录 Token 日志
-    function copyLoginTokenLog() {
-      const logEl = document.getElementById('loginTokenLog');
-      if (!logEl) return;
-      
-      // 获取所有日志条目
-      const logEntries = logEl.querySelectorAll('.log-entry');
-      if (logEntries.length === 0) {
-        showCenterMessage('暂无日志可复制', 'warning', 2000);
-        return;
-      }
-      
-      // 提取纯文本
-      const logText = Array.from(logEntries)
-        .map(entry => entry.textContent)
-        .join('\n');
-      
-      // 复制到剪贴板
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(logText)
-          .then(() => {
-            showCenterMessage('日志已复制到剪贴板', 'success', 2000);
-          })
-          .catch(err => {
-            console.error('复制失败:', err);
-            showCenterMessage('复制失败，请手动复制', 'error', 2000);
-          });
-      } else {
-        showCenterMessage('浏览器不支持自动复制', 'error', 2000);
-      }
-    }
-    
-    // 添加日志到弹窗
-    function addRegisterLog(message, type = 'info') {
-      const logEl = document.getElementById('registerLog');
-      if (!logEl) {
-        console.warn('[addRegisterLog] registerLog 元素不存在');
-        return;
-      }
-      
-      const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-      const logEntry = document.createElement('div');
-      logEntry.className = 'log-entry';
-      
-      let colorClass = 'log-info';
-      if (type === 'success') colorClass = 'log-success';
-      else if (type === 'error') colorClass = 'log-error';
-      else if (type === 'warning') colorClass = 'log-warning';
-      
-      logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span><span class="${colorClass}">${message}</span>`;
-      logEntry.setAttribute('data-log-text', `[${timestamp}] ${message}`);
-      logEl.appendChild(logEntry);
-      
-      // 立即滚动到底部
-      logEl.scrollTop = logEl.scrollHeight + 1000;
-    }
-    
-    // 复制注册日志
-    function copyRegisterLog() {
-      const logEl = document.getElementById('registerLog');
-      if (!logEl) return;
-      
-      // 获取所有日志条目
-      const logEntries = logEl.querySelectorAll('.log-entry');
-      if (logEntries.length === 0) {
-        showCenterMessage('暂无日志可复制', 'warning', 2000);
-        return;
-      }
-      
-      // 提取纯文本
-      const logText = Array.from(logEntries)
-        .map(entry => entry.getAttribute('data-log-text') || entry.textContent)
-        .join('\n');
-      
-      // 复制到剪贴板
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(logText)
-          .then(() => {
-            showCenterMessage('日志已复制到剪贴板', 'success', 2000);
-          })
-          .catch(err => {
-            console.error('复制失败:', err);
-            fallbackCopyLog(logText);
-          });
-      } else {
-        fallbackCopyLog(logText);
-      }
-    }
-    
-    // 备用复制方法
-    function fallbackCopyLog(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      
-      try {
-        document.execCommand('copy');
-        showCenterMessage('日志已复制到剪贴板', 'success', 2000);
-      } catch (err) {
-        console.error('备用复制方法失败:', err);
-        showCenterMessage('复制失败，请手动复制', 'error', 2000);
-      } finally {
-        document.body.removeChild(textarea);
-      }
-    }
-    
-    // 更新注册统计
-    function updateRegisterStats(total, success, fail, progress) {
-      document.getElementById('modalTotalCount').textContent = total;
-      document.getElementById('modalSuccessCount').textContent = success;
-      document.getElementById('modalFailCount').textContent = fail;
-      document.getElementById('modalProgress').textContent = progress + '%';
-    }
-    
-    // 密码显示/隐藏切换
-    function togglePassword(event) {
-      event.stopPropagation();
-      const btn = event.currentTarget;
-      const cell = btn.closest('.password-cell');
-      const masked = cell.querySelector('.password-masked');
-      const text = cell.querySelector('.password-text');
-      const icon = btn.querySelector('i');
-      
-      if (!cell || !masked || !text) {
-        console.error('密码元素未找到');
-        return;
-      }
-      
-      if (masked.style.display === 'none') {
-        // 隐藏密码
-        masked.style.display = 'inline';
-        text.style.display = 'none';
-        if (icon) {
-          icon.setAttribute('data-lucide', 'eye');
-        }
-      } else {
-        // 显示密码
-        masked.style.display = 'none';
-        text.style.display = 'inline';
-        if (icon) {
-          icon.setAttribute('data-lucide', 'eye-off');
-        }
-      }
-      
-      // 重新初始化图标
-      if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-      }
-    }
-    
-    // 复制邮箱文本
-    function copyEmailText(event) {
-      event.stopPropagation();
-      const emailText = event.target.textContent;
-      
-      if (!emailText) return;
-      
-      // 复制到剪贴板
-      navigator.clipboard.writeText(emailText).then(() => {
-        // 显示复制成功提示
-        const originalText = event.target.textContent;
-        const originalColor = event.target.style.color;
-        event.target.textContent = '✓ 已复制';
-        event.target.style.color = '#34c759';
-        
-        // 1秒后恢复原文本
-        setTimeout(() => {
-          event.target.textContent = originalText;
-          event.target.style.color = originalColor;
-        }, 1000);
-      }).catch(err => {
-        console.error('复制失败:', err);
-        showCustomAlert('复制失败，请手动复制', 'error');
-      });
-    }
-    
-    // 复制密码文本
-    function copyPasswordText(event) {
-      event.stopPropagation();
-      const passwordText = event.target.textContent;
-      
-      if (!passwordText) return;
-      
-      // 复制到剪贴板
-      navigator.clipboard.writeText(passwordText).then(() => {
-        // 显示复制成功提示
-        const originalText = event.target.textContent;
-        event.target.textContent = '✓ 已复制';
-        event.target.style.color = '#34c759';
-        
-        // 1秒后恢复原文本
-        setTimeout(() => {
-          event.target.textContent = originalText;
-          event.target.style.color = '';
-        }, 1000);
-      }).catch(err => {
-        console.error('复制失败:', err);
-        showCustomAlert('复制失败，请手动复制', 'error');
-      });
-    }
-    
-    // 下拉菜单控制
-    function toggleAddAccountMenu(event) {
-      event.stopPropagation();
-      const menu = document.getElementById('addAccountMenu');
-      menu.classList.toggle('show');
-      
-      // 重新初始化图标
-      setTimeout(() => {
-        if (typeof lucide !== 'undefined') {
-          lucide.createIcons();
-        }
-      }, 0);
-    }
-
-    function hideAddAccountMenu() {
-      const menu = document.getElementById('addAccountMenu');
-      menu.classList.remove('show');
-    }
-
-    // 导出账号下拉菜单控制
-    function toggleExportMenu(event) {
-      event.stopPropagation();
-      const menu = document.getElementById('exportAccountMenu');
-      menu.classList.toggle('show');
-      
-      // 重新初始化图标
-      setTimeout(() => {
-        if (typeof lucide !== 'undefined') {
-          lucide.createIcons();
-        }
-      }, 0);
-    }
-
-    function hideExportMenu() {
-      const menu = document.getElementById('exportAccountMenu');
-      menu.classList.remove('show');
-    }
-
-    // 点击页面其他地方关闭下拉菜单
-    document.addEventListener('click', (event) => {
-      const addMenu = document.getElementById('addAccountMenu');
-      const addBtn = document.getElementById('addAccountBtn');
-      if (addMenu && !addMenu.contains(event.target) && !addBtn.contains(event.target)) {
-        hideAddAccountMenu();
-      }
-      
-      const exportMenu = document.getElementById('exportAccountMenu');
-      const exportBtn = document.getElementById('exportAccountBtn');
-      if (exportMenu && !exportMenu.contains(event.target) && !exportBtn.contains(event.target)) {
-        hideExportMenu();
-      }
-    });
-    
-    // 页面加载完成后初始化Lucide图标
-    document.addEventListener('DOMContentLoaded', () => {
-      lucide.createIcons();
-      
-      // 加载配置文件路径
-      if (typeof loadFilePaths === 'function') {
-        loadFilePaths();
-      }
-      
-      // 初始化域名管理器
-      if (typeof initDomainManager === 'function') {
-        initDomainManager();
-      }
-    });
-  </script>
   <script src="renderer.js"></script>
 </body>
 </html>
