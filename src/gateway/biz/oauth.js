@@ -3,6 +3,37 @@
 const axios = require('axios');
 const logger = require('../logger');
 
+// ---------------------------------------------------------------------------
+// Refresh-lock registry (module-level singleton)
+// Ensures only one refresh runs per account at a time.
+// Map<accountId, Promise<result>>
+// ---------------------------------------------------------------------------
+const _refreshLocks = new Map();
+
+/**
+ * Execute a refresh function for the given accountId, guaranteeing that
+ * concurrent callers share the same in-flight promise rather than
+ * spawning duplicate refresh requests.
+ *
+ * @param {string} accountId - Unique identifier for the account
+ * @param {() => Promise<any>} refreshFn - The actual refresh logic
+ * @returns {Promise<any>} The result of refreshFn
+ */
+async function refreshWithLock(accountId, refreshFn) {
+  // If a refresh is already in progress for this account, return the same promise
+  if (_refreshLocks.has(accountId)) {
+    logger.info(`Refresh already in progress for account ${accountId}, waiting for existing`);
+    return _refreshLocks.get(accountId);
+  }
+
+  const promise = refreshFn().finally(() => {
+    _refreshLocks.delete(accountId);
+  });
+
+  _refreshLocks.set(accountId, promise);
+  return promise;
+}
+
 class OAuthTokenProvider {
   constructor(params) {
     this.credentials = params.credentials || {};
@@ -13,6 +44,8 @@ class OAuthTokenProvider {
     this.tokenExpiresAt = null;
     this.refreshTimer = null;
     this.refreshing = false;
+    /** Optional account id used to coordinate refreshes across providers. */
+    this.accountId = params.accountId || null;
   }
 
   getCurrentToken() {
@@ -25,18 +58,29 @@ class OAuthTokenProvider {
   }
 
   async refreshToken() {
+    // If an accountId is set, use the global lock to deduplicate refreshes
+    if (this.accountId) {
+      return refreshWithLock(this.accountId, () => this._doRefresh());
+    }
+
+    // Fallback: simple boolean guard (original behaviour)
     if (this.refreshing) return this.currentToken;
+    return this._doRefresh();
+  }
+
+  /** Internal: performs the actual token refresh HTTP call. */
+  async _doRefresh() {
     this.refreshing = true;
 
     try {
-      const refreshToken = this.credentials.refresh_token;
-      if (!refreshToken) {
+      const refreshTokenVal = this.credentials.refresh_token;
+      if (!refreshTokenVal) {
         throw new Error('No refresh token available');
       }
 
       const response = await axios.post(this.oauthUrls.tokenUrl, {
         grant_type: 'refresh_token',
-        refresh_token: refreshToken,
+        refresh_token: refreshTokenVal,
         client_id: this.credentials.client_id || 'app_EMoamEEZ73f0CkXaXp7hrann',
       }, {
         headers: {
@@ -100,6 +144,16 @@ class OAuthTokenProvider {
       this.refreshTimer = null;
     }
   }
+
+  /**
+   * Full cleanup — stop timers and clear state.
+   * Call this when the provider instance is no longer needed.
+   */
+  destroy() {
+    this.stopAutoRefresh();
+    this.currentToken = null;
+    this.tokenExpiresAt = null;
+  }
 }
 
 class DeviceFlowProvider {
@@ -144,4 +198,4 @@ class DeviceFlowProvider {
   }
 }
 
-module.exports = { OAuthTokenProvider, DeviceFlowProvider };
+module.exports = { OAuthTokenProvider, DeviceFlowProvider, refreshWithLock };

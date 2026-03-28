@@ -4,7 +4,33 @@ const { Router } = require('express');
 const { getDb } = require('../db');
 const { cacheManager } = require('../cache');
 const logger = require('../logger');
+const { apiKeyAuth, adminAuth } = require('../middleware/auth');
 const router = Router();
+
+// All admin routes require authentication + admin role
+router.use(apiKeyAuth);
+router.use(adminAuth);
+
+// ===== Audit Logging Helper =====
+function auditLog(req, action, resourceType, resourceId, details, status) {
+  try {
+    const db = getDb();
+    const userIp = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || '';
+    db.prepare(`
+      INSERT INTO audit_logs (timestamp, action, resource_type, resource_id, user_ip, details, status)
+      VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)
+    `).run(
+      action,
+      resourceType,
+      resourceId != null ? String(resourceId) : null,
+      userIp,
+      typeof details === 'object' ? JSON.stringify(details) : String(details || '{}'),
+      status || 'success'
+    );
+  } catch (err) {
+    logger.error('Failed to write audit log', { error: err.message, action, resourceType, resourceId });
+  }
+}
 
 // ===== Channels CRUD =====
 router.get('/channels', (req, res) => {
@@ -59,9 +85,11 @@ router.post('/channels', (req, res) => {
     cacheManager.flush('channels');
     const created = db.prepare('SELECT * FROM channels WHERE id = ?').get(result.lastInsertRowid);
     logger.info(`Channel created: ${name} (${type})`);
+    auditLog(req, 'create', 'channel', result.lastInsertRowid, { type, name }, 'success');
     res.status(201).json({ data: created });
   } catch (err) {
     logger.error('Failed to create channel', { error: err.message });
+    auditLog(req, 'create', 'channel', null, { type, name, error: err.message }, 'failure');
     res.status(400).json({ error: { message: err.message } });
   }
 });
@@ -73,10 +101,12 @@ router.patch('/channels/:id', (req, res) => {
   const allowed = ['name', 'base_url', 'status', 'credentials', 'supported_models', 'manual_models', 'tags', 'default_test_model', 'policies', 'settings', 'ordering_weight', 'error_message', 'remark', 'auto_sync_supported_models', 'auto_sync_model_pattern'];
   const jsonFields = new Set(['credentials', 'supported_models', 'manual_models', 'tags', 'policies', 'settings']);
 
+  const changedKeys = [];
   for (const key of allowed) {
     if (req.body[key] !== undefined) {
       fields.push(`${key} = ?`);
       values.push(jsonFields.has(key) ? JSON.stringify(req.body[key]) : req.body[key]);
+      changedKeys.push(key);
     }
   }
   if (fields.length === 0) return res.status(400).json({ error: { message: 'No fields to update' } });
@@ -86,6 +116,7 @@ router.patch('/channels/:id', (req, res) => {
   db.prepare(`UPDATE channels SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`).run(...values);
   cacheManager.flush('channels');
   const updated = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  auditLog(req, 'update', 'channel', req.params.id, { changed_fields: changedKeys }, 'success');
   res.json({ data: updated });
 });
 
@@ -93,6 +124,7 @@ router.delete('/channels/:id', (req, res) => {
   const db = getDb();
   db.prepare("UPDATE channels SET deleted_at = datetime('now'), status = 'archived' WHERE id = ?").run(req.params.id);
   cacheManager.flush('channels');
+  auditLog(req, 'delete', 'channel', req.params.id, {}, 'success');
   res.json({ success: true });
 });
 
@@ -113,8 +145,10 @@ router.post('/models', (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enabled', ?)
     `).run(developer || '', model_id, type || 'chat', name, icon || '', model_group || '', JSON.stringify(model_card || {}), JSON.stringify(settings || {}), remark || null);
     cacheManager.flush('models');
+    auditLog(req, 'create', 'model', result.lastInsertRowid, { model_id, name }, 'success');
     res.status(201).json({ data: db.prepare('SELECT * FROM models WHERE id = ?').get(result.lastInsertRowid) });
   } catch (err) {
+    auditLog(req, 'create', 'model', null, { model_id, name, error: err.message }, 'failure');
     res.status(400).json({ error: { message: err.message } });
   }
 });
@@ -125,10 +159,12 @@ router.patch('/models/:id', (req, res) => {
   const values = [];
   const allowed = ['developer', 'model_id', 'type', 'name', 'icon', 'model_group', 'model_card', 'settings', 'status', 'remark'];
   const jsonFields = new Set(['model_card', 'settings']);
+  const changedKeys = [];
   for (const key of allowed) {
     if (req.body[key] !== undefined) {
       fields.push(`${key} = ?`);
       values.push(jsonFields.has(key) ? JSON.stringify(req.body[key]) : req.body[key]);
+      changedKeys.push(key);
     }
   }
   if (fields.length === 0) return res.status(400).json({ error: { message: 'No fields to update' } });
@@ -136,6 +172,7 @@ router.patch('/models/:id', (req, res) => {
   values.push(req.params.id);
   db.prepare(`UPDATE models SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`).run(...values);
   cacheManager.flush('models');
+  auditLog(req, 'update', 'model', req.params.id, { changed_fields: changedKeys }, 'success');
   res.json({ data: db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id) });
 });
 
@@ -143,6 +180,7 @@ router.delete('/models/:id', (req, res) => {
   const db = getDb();
   db.prepare("UPDATE models SET deleted_at = datetime('now'), status = 'archived' WHERE id = ?").run(req.params.id);
   cacheManager.flush('models');
+  auditLog(req, 'delete', 'model', req.params.id, {}, 'success');
   res.json({ success: true });
 });
 
@@ -164,8 +202,10 @@ router.post('/api-keys', (req, res) => {
     const result = db.prepare(`
       INSERT INTO api_keys (user_id, project_id, key, name, type, scopes) VALUES (?, ?, ?, ?, ?, ?)
     `).run(1, project_id || 1, key, name, type || 'user', JSON.stringify(scopes || ['read_channels', 'write_requests']));
+    auditLog(req, 'create', 'api_key', result.lastInsertRowid, { name, type: type || 'user' }, 'success');
     res.status(201).json({ data: db.prepare('SELECT * FROM api_keys WHERE id = ?').get(result.lastInsertRowid) });
   } catch (err) {
+    auditLog(req, 'create', 'api_key', null, { name, error: err.message }, 'failure');
     res.status(400).json({ error: { message: err.message } });
   }
 });
@@ -173,6 +213,7 @@ router.post('/api-keys', (req, res) => {
 router.delete('/api-keys/:id', (req, res) => {
   const db = getDb();
   db.prepare("UPDATE api_keys SET deleted_at = datetime('now'), status = 'archived' WHERE id = ?").run(req.params.id);
+  auditLog(req, 'delete', 'api_key', req.params.id, {}, 'success');
   res.json({ success: true });
 });
 
@@ -287,6 +328,7 @@ router.patch('/system/settings', (req, res) => {
   });
   transaction(req.body);
   cacheManager.flush('system');
+  auditLog(req, 'update', 'system_settings', null, { keys: Object.keys(req.body) }, 'success');
   res.json({ success: true });
 });
 
@@ -325,11 +367,17 @@ router.post('/prompt-protection-rules', (req, res) => {
   const db = getDb();
   const { name, description, type, pattern, action, replacement, ordering } = req.body;
   if (!name || !pattern) return res.status(400).json({ error: { message: 'name and pattern are required' } });
-  const result = db.prepare(`
-    INSERT INTO prompt_protection_rules (name, description, type, pattern, action, replacement, ordering)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(name, description || '', type || 'keyword', pattern, action || 'block', replacement || '', ordering || 0);
-  res.status(201).json({ data: db.prepare('SELECT * FROM prompt_protection_rules WHERE id = ?').get(result.lastInsertRowid) });
+  try {
+    const result = db.prepare(`
+      INSERT INTO prompt_protection_rules (name, description, type, pattern, action, replacement, ordering)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(name, description || '', type || 'keyword', pattern, action || 'block', replacement || '', ordering || 0);
+    auditLog(req, 'create', 'prompt_protection_rule', result.lastInsertRowid, { name }, 'success');
+    res.status(201).json({ data: db.prepare('SELECT * FROM prompt_protection_rules WHERE id = ?').get(result.lastInsertRowid) });
+  } catch (err) {
+    auditLog(req, 'create', 'prompt_protection_rule', null, { name, error: err.message }, 'failure');
+    res.status(400).json({ error: { message: err.message } });
+  }
 });
 
 // ===== Prompts =====
@@ -344,6 +392,7 @@ router.get('/prompts', (req, res) => {
 router.get('/backup/export', (req, res) => {
   const { backupService } = require('../biz/backup');
   const data = backupService.exportConfig();
+  auditLog(req, 'export', 'backup', null, {}, 'success');
   res.json({ data });
 });
 
@@ -351,8 +400,10 @@ router.post('/backup/import', (req, res) => {
   try {
     const { backupService } = require('../biz/backup');
     backupService.importConfig(req.body);
+    auditLog(req, 'import', 'backup', null, {}, 'success');
     res.json({ success: true, message: 'Config imported successfully' });
   } catch (err) {
+    auditLog(req, 'import', 'backup', null, { error: err.message }, 'failure');
     res.status(400).json({ error: { message: err.message } });
   }
 });
@@ -362,8 +413,10 @@ router.post('/accounts/sync', (req, res) => {
   try {
     const { accountIntegrationService } = require('../biz/accountIntegration');
     const result = accountIntegrationService.syncAccountsToChannels(req.body.accounts || []);
+    auditLog(req, 'sync', 'accounts', null, { account_count: (req.body.accounts || []).length }, 'success');
     res.json({ data: result });
   } catch (err) {
+    auditLog(req, 'sync', 'accounts', null, { error: err.message }, 'failure');
     res.status(400).json({ error: { message: err.message } });
   }
 });
@@ -374,10 +427,100 @@ router.get('/accounts/auto-imported', (req, res) => {
   res.json({ data: channels, total: channels.length });
 });
 
-// ===== Load Balancer Stats =====
+// ===== Load Balancer Stats & Strategy =====
 router.get('/lb/stats', (req, res) => {
-  const { loadBalancer } = require('../biz/loadBalancer');
-  res.json({ data: loadBalancer.getAllStats() });
+  const { loadBalancer, circuitBreaker } = require('../biz/loadBalancer');
+  res.json({
+    data: loadBalancer.getAllStats(),
+    strategy: loadBalancer.getStrategy(),
+    circuitBreakers: circuitBreaker.getAllStats(),
+  });
+});
+
+router.get('/lb/strategy', (req, res) => {
+  const { loadBalancer, VALID_STRATEGIES } = require('../biz/loadBalancer');
+  res.json({
+    strategy: loadBalancer.getStrategy(),
+    available: [...VALID_STRATEGIES],
+  });
+});
+
+router.put('/lb/strategy', (req, res) => {
+  const { loadBalancer, VALID_STRATEGIES } = require('../biz/loadBalancer');
+  const { strategy } = req.body;
+  if (!strategy || !VALID_STRATEGIES.has(strategy)) {
+    return res.status(400).json({
+      error: { message: `Invalid strategy. Valid options: ${[...VALID_STRATEGIES].join(', ')}` }
+    });
+  }
+  loadBalancer.setStrategy(strategy);
+
+  // Persist to systems table so it survives restarts
+  const db = getDb();
+  db.prepare("INSERT INTO systems (key, value, updated_at) VALUES ('lb_routing_strategy', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+    .run(strategy);
+
+  res.json({ success: true, strategy });
+});
+
+router.get('/lb/circuit-breakers', (req, res) => {
+  const { circuitBreaker } = require('../biz/loadBalancer');
+  res.json({ data: circuitBreaker.getAllStats() });
+});
+
+router.post('/lb/circuit-breakers/reset', (req, res) => {
+  const { circuitBreaker } = require('../biz/loadBalancer');
+  const { key } = req.body;
+  circuitBreaker.reset(key || undefined);
+  res.json({ success: true, message: key ? `Circuit reset for: ${key}` : 'All circuits reset' });
+});
+
+// ===== Audit Log Query =====
+router.get('/audit-log', (req, res) => {
+  const db = getDb();
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+  const offset = parseInt(req.query.offset) || 0;
+
+  let whereClause = '1=1';
+  const params = [];
+
+  if (req.query.action) {
+    whereClause += ' AND action = ?';
+    params.push(req.query.action);
+  }
+
+  if (req.query.resource_type) {
+    whereClause += ' AND resource_type = ?';
+    params.push(req.query.resource_type);
+  }
+
+  if (req.query.status) {
+    whereClause += ' AND status = ?';
+    params.push(req.query.status);
+  }
+
+  if (req.query.since) {
+    whereClause += ' AND timestamp >= ?';
+    params.push(req.query.since);
+  }
+
+  if (req.query.until) {
+    whereClause += ' AND timestamp <= ?';
+    params.push(req.query.until);
+  }
+
+  const countParams = [...params];
+  const total = db.prepare(`SELECT COUNT(*) AS count FROM audit_logs WHERE ${whereClause}`).get(...countParams);
+
+  params.push(limit, offset);
+  const rows = db.prepare(`SELECT * FROM audit_logs WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ? OFFSET ?`).all(...params);
+
+  const parsed = rows.map(r => ({
+    ...r,
+    details: JSON.parse(r.details || '{}'),
+  }));
+
+  res.json({ data: parsed, total: total.count, limit, offset });
 });
 
 module.exports = router;

@@ -9,10 +9,19 @@ class AccountIntegrationService {
     const db = getDb();
     let created = 0;
     let updated = 0;
+    let skipped = 0;
 
     const transaction = db.transaction(() => {
       for (const account of accounts) {
         if (!account.email) continue;
+
+        // Validate credentials before syncing
+        const validation = this.validateCredentials(account);
+        if (!validation.valid) {
+          logger.warn(`Skipping account ${account.email}: ${validation.reason}`);
+          skipped++;
+          continue;
+        }
 
         const existing = db.prepare(
           "SELECT id FROM channels WHERE name = ? AND deleted_at IS NULL"
@@ -64,8 +73,8 @@ class AccountIntegrationService {
     transaction();
     cacheManager.flush('channels');
 
-    logger.info(`Account sync complete: ${created} created, ${updated} updated`);
-    return { created, updated, total: accounts.length };
+    logger.info(`Account sync complete: ${created} created, ${updated} updated, ${skipped} skipped`);
+    return { created, updated, skipped, total: accounts.length };
   }
 
   getChannelType(account) {
@@ -109,6 +118,115 @@ class AccountIntegrationService {
     `).run();
     cacheManager.flush('channels');
     return result.changes;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Credential validation helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Quick validation of an account's credentials.
+   * Checks that at least one usable credential exists and, if a JWT-style
+   * access token is present, that it has not expired.
+   */
+  validateCredentials(account) {
+    if (!account) {
+      return { valid: false, reason: 'Account object is null or undefined' };
+    }
+
+    const hasAccessToken = Boolean(account.accessToken);
+    const hasRefreshToken = Boolean(account.refreshToken);
+    const hasApiKey = Boolean(account.token);
+
+    if (!hasAccessToken && !hasRefreshToken && !hasApiKey) {
+      return { valid: false, reason: 'No credentials present' };
+    }
+
+    // If an access token is present, check whether it looks expired
+    if (hasAccessToken) {
+      const expiry = this.checkExpiry(account);
+      if (expiry.expired && !hasRefreshToken) {
+        return { valid: false, reason: 'Access token expired and no refresh token available' };
+      }
+    }
+
+    return { valid: true, reason: null };
+  }
+
+  /**
+   * Decode the expiry from a JWT-style access token (without signature
+   * verification -- we only care about the `exp` claim for a quick check).
+   * Returns { expired: boolean, expiresAt: Date|null, remainingMs: number|null }.
+   */
+  checkExpiry(account) {
+    const token = account.accessToken || account.token;
+    if (!token) {
+      return { expired: true, expiresAt: null, remainingMs: null };
+    }
+
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        // Not a JWT -- assume valid (opaque API key)
+        return { expired: false, expiresAt: null, remainingMs: null };
+      }
+
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      if (!payload.exp) {
+        return { expired: false, expiresAt: null, remainingMs: null };
+      }
+
+      const expiresAt = new Date(payload.exp * 1000);
+      const remainingMs = expiresAt.getTime() - Date.now();
+
+      return {
+        expired: remainingMs <= 0,
+        expiresAt,
+        remainingMs: Math.max(remainingMs, 0),
+      };
+    } catch {
+      // If decoding fails, treat as not expired (opaque token)
+      return { expired: false, expiresAt: null, remainingMs: null };
+    }
+  }
+
+  /**
+   * Scan all auto-imported channels and deactivate any whose tokens have
+   * expired and have no refresh token fallback.
+   * Returns the number of channels deactivated.
+   */
+  autoDeactivateExpired() {
+    const channels = this.getAutoImportedChannels();
+    const db = getDb();
+    let deactivated = 0;
+
+    for (const ch of channels) {
+      if (ch.status === 'disabled' || ch.status === 'archived') continue;
+
+      const creds = ch.credentials || {};
+      const pseudoAccount = {
+        accessToken: creds.access_token,
+        refreshToken: creds.refresh_token,
+        token: creds.api_key,
+      };
+
+      const validation = this.validateCredentials(pseudoAccount);
+      if (!validation.valid) {
+        db.prepare(`
+          UPDATE channels SET status = 'disabled', updated_at = datetime('now')
+          WHERE id = ?
+        `).run(ch.id);
+        deactivated++;
+        logger.info(`Auto-deactivated channel ${ch.name}: ${validation.reason}`);
+      }
+    }
+
+    if (deactivated > 0) {
+      cacheManager.flush('channels');
+    }
+
+    logger.info(`Auto-deactivation scan complete: ${deactivated} channels deactivated`);
+    return deactivated;
   }
 }
 

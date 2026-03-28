@@ -10,12 +10,22 @@ const { registry } = require('./transformer/interfaces');
 const { isTokenExpired } = require('../../services/tokenUtils');
 const { CODEX_BASE_URL } = require('./transformer/codex/index');
 const tokenRefreshService = require('../../services/tokenRefreshService');
+const { quotaService } = require('../biz/quota');
+const { computeUsageCost } = require('../biz/costCalc');
+const { loadBalancer, circuitBreaker } = require('../biz/loadBalancer');
 
 let traceService = null;
 try {
   traceService = require('../biz/trace').traceService;
 } catch (_e) {
   // trace module optional
+}
+
+let requestCloakingService = null;
+try {
+  requestCloakingService = require('../biz/requestCloaking').requestCloakingService;
+} catch (_e) {
+  // cloaking module optional
 }
 
 class Pipeline {
@@ -54,6 +64,22 @@ class Pipeline {
       return res.status(400).json({ error: { message: 'model is required', type: 'invalid_request' } });
     }
 
+    // --- Quota enforcement ---
+    if (req.apiKey) {
+      const profiles = typeof req.apiKey.profiles === 'string'
+        ? JSON.parse(req.apiKey.profiles || '{}')
+        : (req.apiKey.profiles || {});
+      const quota = profiles.quota;
+      if (quota) {
+        const check = quotaService.checkAPIKeyQuota(req.apiKey.id, quota);
+        if (!check.allowed) {
+          return res.status(429).json({
+            error: { message: check.message, type: 'quota_exceeded', code: 'quota_exceeded' }
+          });
+        }
+      }
+    }
+
     const inboundRequest = inbound.buildRequest(req.body);
 
     // --- Pool-based dynamic allocation (GW-01 + GW-02 failover) ---
@@ -79,12 +105,46 @@ class Pipeline {
       });
     }
 
+    // --- Filter out channels with open circuit breakers ---
+    const availableChannels = channels.filter(ch => {
+      const cbKey = `channel:${ch.id}`;
+      if (circuitBreaker.isOpen(cbKey)) {
+        logger.debug(`Skipping channel ${ch.name} (id=${ch.id}): circuit breaker open`);
+        return false;
+      }
+      return true;
+    });
+
+    if (availableChannels.length === 0) {
+      // All channels have tripped circuit breakers -- allow the original
+      // list through so the request is not simply dropped.  The half-open
+      // transition in CircuitBreaker will eventually let test requests pass.
+      logger.warn('All channels have open circuit breakers, allowing original list', { model });
+      availableChannels.push(...channels);
+    }
+
     const requestRecord = this.createRequestRecord(db, req, model, format, isStream);
 
+    // --- Strategy-based channel selection with retry ---
+    const maxAttempts = Math.min(this.maxChannelRetries, availableChannels.length);
+    const tried = new Set();
     let lastError = null;
-    for (let attempt = 0; attempt < Math.min(this.maxChannelRetries, channels.length); attempt++) {
-      const channel = channels[attempt];
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Use loadBalancer strategy to pick the next channel, filtering
+      // out already-tried channels so retries go to different ones.
+      const candidates = availableChannels.filter(ch => !tried.has(ch.id));
+      if (candidates.length === 0) break;
+
+      const channel = loadBalancer.selectChannel(candidates, model);
+      if (!channel) break;
+      tried.add(channel.id);
+
+      const cbKey = `channel:${channel.id}`;
+
       try {
+        loadBalancer.trackConnectionStart(channel.id);
+
         const outbound = registry.getOutbound(channel);
         const actualModel = this.resolveModel(channel, model);
         const providerRequest = outbound.transformRequest(inboundRequest, actualModel);
@@ -99,13 +159,26 @@ class Pipeline {
           await this.executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime);
         }
 
-        this.updateRequestStatus(db, requestRecord.id, 'completed', channel.id, Date.now() - startTime);
+        const latencyMs = Date.now() - startTime;
+        this.updateRequestStatus(db, requestRecord.id, 'completed', channel.id, latencyMs);
+
+        // Record success in load balancer metrics and circuit breaker
+        loadBalancer.recordSuccess(channel.id, latencyMs);
+        circuitBreaker.recordSuccess(cbKey);
+        loadBalancer.trackConnectionEnd(channel.id);
         return;
       } catch (err) {
+        loadBalancer.trackConnectionEnd(channel.id);
+
         lastError = err;
+        const statusCode = err.response?.status;
         logger.warn(`Channel ${channel.name} failed for model ${model}`, { error: err.message, attempt: attempt + 1 });
-        this.recordExecution(db, requestRecord.id, channel.id, attempt + 1, 'failed', err.response?.status, err.message);
-        this.recordChannelError(db, channel.id, err.response?.status);
+        this.recordExecution(db, requestRecord.id, channel.id, attempt + 1, 'failed', statusCode, err.message);
+        this.recordChannelError(db, channel.id, statusCode);
+
+        // Record failure in load balancer metrics and circuit breaker
+        loadBalancer.recordFailure(channel.id, statusCode);
+        circuitBreaker.recordFailure(cbKey);
       }
     }
 
@@ -222,15 +295,38 @@ class Pipeline {
       try {
         const outbound = registry.getOutbound(syntheticChannel);
         const actualModel = this.resolveModel(syntheticChannel, model);
-        const providerRequest = outbound.transformRequest(inboundRequest, actualModel);
+        let providerRequest = outbound.transformRequest(inboundRequest, actualModel);
         const requestUrl = outbound.getRequestUrl(actualModel);
-        const headers = outbound.getHeaders();
+        let headers = outbound.getHeaders();
+
+        // --- Per-key custom headers (merged after transformer headers) ---
+        if (syntheticChannel.custom_headers && typeof syntheticChannel.custom_headers === 'object') {
+          headers = { ...headers, ...syntheticChannel.custom_headers };
+        }
+
+        // --- Request cloaking ---
+        let replacementMap = null;
+        if (requestCloakingService) {
+          try {
+            const cloakResult = requestCloakingService.cloakRequest(providerRequest, providerType);
+            providerRequest = cloakResult.cloakedBody;
+            replacementMap = cloakResult.replacementMap;
+          } catch (cloakErr) {
+            logger.warn('[Cloaking] Failed to cloak request, proceeding uncloaked', { error: cloakErr.message });
+          }
+        }
+
+        // --- Per-key proxy URL ---
+        const axiosExtra = {};
+        if (syntheticChannel.proxy_url) {
+          axiosExtra.proxy_url = syntheticChannel.proxy_url;
+        }
 
         if (isStream) {
-          await this.executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart);
+          await this.executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart, axiosExtra);
         } else {
           const inbound = registry.getInbound(format);
-          await this.executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart);
+          await this.executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart, replacementMap, axiosExtra);
         }
 
         const latencyMs = Date.now() - attemptStart;
@@ -311,7 +407,7 @@ class Pipeline {
       }
     }
 
-    return {
+    const channel = {
       id: null,
       type: allocation.channelType,
       name: `__pool__${allocation.accountId}`,
@@ -324,6 +420,18 @@ class Pipeline {
       settings: {},
       ordering_weight: Math.round(allocation.health_score / 10),
     };
+
+    // Per-key proxy URL override -- downstream HTTP calls will route through this proxy
+    if (allocation.proxy_url) {
+      channel.proxy_url = allocation.proxy_url;
+    }
+
+    // Per-key custom headers -- merged into outbound request headers
+    if (allocation.custom_headers && typeof allocation.custom_headers === 'object') {
+      channel.custom_headers = allocation.custom_headers;
+    }
+
+    return channel;
   }
 
   /**
@@ -455,8 +563,8 @@ class Pipeline {
     }
   }
 
-  async executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime) {
-    const response = await axios({
+  async executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime, axiosExtra = {}) {
+    const axiosConfig = {
       method: 'POST',
       url: requestUrl,
       headers,
@@ -464,7 +572,26 @@ class Pipeline {
       responseType: 'stream',
       timeout: 600000,
       validateStatus: (status) => status < 500,
-    });
+    };
+
+    // Per-key proxy support
+    if (axiosExtra.proxy_url) {
+      try {
+        const proxyUrl = new URL(axiosExtra.proxy_url);
+        axiosConfig.proxy = {
+          protocol: proxyUrl.protocol.replace(':', ''),
+          host: proxyUrl.hostname,
+          port: parseInt(proxyUrl.port, 10) || (proxyUrl.protocol === 'https:' ? 443 : 80),
+        };
+        if (proxyUrl.username) {
+          axiosConfig.proxy.auth = { username: proxyUrl.username, password: proxyUrl.password || '' };
+        }
+      } catch (proxyErr) {
+        logger.warn('[Proxy] Invalid proxy_url, ignoring', { proxy_url: axiosExtra.proxy_url, error: proxyErr.message });
+      }
+    }
+
+    const response = await axios(axiosConfig);
 
     if (response.status >= 400) {
       let errorBody = '';
@@ -486,68 +613,102 @@ class Pipeline {
     let buffer = '';
 
     response.data.on('data', (chunk) => {
-      const text = chunk.toString();
-      buffer += text;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      try {
+        const text = chunk.toString();
+        buffer += text;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const data = trimmed.slice(6);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const data = trimmed.slice(6);
 
-        if (data === '[DONE]') {
-          endSSE(res);
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(data);
-
-          if (firstChunk) {
-            firstChunk = false;
-            const ftLatency = Date.now() - startTime;
-            db.prepare('UPDATE requests SET metrics_first_token_latency_ms = ? WHERE id = ?').run(ftLatency, requestRecord.id);
+          if (data === '[DONE]') {
+            endSSE(res);
+            return;
           }
 
-          const transformed = outbound.transformStreamChunk(parsed);
-          if (transformed) {
-            const usage = outbound.extractUsage(parsed);
-            usageAccumulator.update(usage);
-            writeSSE(res, transformed);
+          try {
+            const parsed = JSON.parse(data);
+
+            if (firstChunk) {
+              firstChunk = false;
+              try {
+                const ftLatency = Date.now() - startTime;
+                db.prepare('UPDATE requests SET metrics_first_token_latency_ms = ? WHERE id = ?').run(ftLatency, requestRecord.id);
+              } catch (dbErr) {
+                logger.warn('Failed to update first token latency', { error: dbErr.message });
+              }
+            }
+
+            const transformed = outbound.transformStreamChunk(parsed);
+            if (transformed) {
+              const usage = outbound.extractUsage(parsed);
+              usageAccumulator.update(usage);
+              writeSSE(res, transformed);
+            }
+          } catch {
+            writeSSE(res, data);
           }
-        } catch {
-          writeSSE(res, data);
         }
+      } catch (outerErr) {
+        logger.error('Error in stream data handler', { error: outerErr.message });
       }
     });
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        fn(value);
+      };
       response.data.on('end', () => {
         if (!res.writableEnded) {
           endSSE(res);
         }
         const latency = Date.now() - startTime;
         this.saveUsageLog(db, requestRecord, channel, usageAccumulator.toJSON(), latency);
-        resolve();
+        settle(resolve);
       });
-      response.data.on('error', reject);
+      response.data.on('error', (err) => settle(reject, err));
       req.on('close', () => {
+        response.data.removeAllListeners();
         response.data.destroy();
-        resolve();
+        settle(resolve);
       });
     });
   }
 
-  async executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime) {
-    const response = await axios({
+  async executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime, replacementMap = null, axiosExtra = {}) {
+    const axiosConfig = {
       method: 'POST',
       url: requestUrl,
       headers,
       data: providerRequest,
       timeout: 600000,
       validateStatus: (status) => status < 500,
-    });
+    };
+
+    // Per-key proxy support
+    if (axiosExtra.proxy_url) {
+      try {
+        const proxyUrl = new URL(axiosExtra.proxy_url);
+        axiosConfig.proxy = {
+          protocol: proxyUrl.protocol.replace(':', ''),
+          host: proxyUrl.hostname,
+          port: parseInt(proxyUrl.port, 10) || (proxyUrl.protocol === 'https:' ? 443 : 80),
+        };
+        if (proxyUrl.username) {
+          axiosConfig.proxy.auth = { username: proxyUrl.username, password: proxyUrl.password || '' };
+        }
+      } catch (proxyErr) {
+        logger.warn('[Proxy] Invalid proxy_url, ignoring', { proxy_url: axiosExtra.proxy_url, error: proxyErr.message });
+      }
+    }
+
+    const response = await axios(axiosConfig);
 
     if (response.status >= 400) {
       const err = new Error(`Upstream error: ${response.status}`);
@@ -559,9 +720,18 @@ class Pipeline {
       this.recordExecution(db, requestRecord.id, channel.id, 1, 'success', response.status);
     }
 
-    const transformed = outbound.transformResponse(response.data);
+    let transformed = outbound.transformResponse(response.data);
     const usage = outbound.extractUsage(response.data);
     const latency = Date.now() - startTime;
+
+    // --- Uncloak response if cloaking was applied ---
+    if (replacementMap && replacementMap.size > 0 && requestCloakingService) {
+      try {
+        transformed = requestCloakingService.uncloakResponse(transformed, replacementMap);
+      } catch (uncloakErr) {
+        logger.warn('[Cloaking] Failed to uncloak response', { error: uncloakErr.message });
+      }
+    }
 
     db.prepare('UPDATE requests SET response_body = ?, metrics_latency_ms = ? WHERE id = ?')
       .run(JSON.stringify(transformed), latency, requestRecord.id);
@@ -676,14 +846,34 @@ class Pipeline {
   saveUsageLog(db, requestRecord, channel, usage, latencyMs) {
     if (!usage) return;
     try {
+      // Calculate cost if channel has pricing configured
+      let cost = '0';
+      let costItems = '[]';
+      if (channel.id != null) {
+        try {
+          const priceRow = db.prepare(
+            'SELECT price FROM channel_model_prices WHERE channel_id = ? AND model_id = ?'
+          ).get(channel.id, requestRecord.model);
+          if (priceRow) {
+            const price = JSON.parse(priceRow.price || '{}');
+            const result = computeUsageCost(usage, price);
+            cost = result.total;
+            costItems = JSON.stringify(result.items);
+          }
+        } catch (costErr) {
+          logger.warn('Failed to compute usage cost', { error: costErr.message });
+        }
+      }
+
       db.prepare(`
-        INSERT INTO usage_logs (request_id, api_key_id, project_id, channel_id, model_id, prompt_tokens, completion_tokens, total_tokens, cached_tokens)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO usage_logs (request_id, api_key_id, project_id, channel_id, model_id, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cost, cost_items)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         requestRecord.id, null, 1, channel.id, requestRecord.model,
         usage.prompt_tokens || 0, usage.completion_tokens || 0,
         usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-        usage.cached_tokens || 0
+        usage.cached_tokens || 0,
+        cost, costItems
       );
     } catch (err) {
       logger.error('Failed to save usage log', { error: err.message });
@@ -692,6 +882,10 @@ class Pipeline {
 
   shutdown() {
     logger.info('Pipeline shutting down');
+    // Clean up pool bridge auto-sync timer if active
+    if (this._poolBridge && typeof this._poolBridge.stopAutoSync === 'function') {
+      this._poolBridge.stopAutoSync();
+    }
   }
 }
 

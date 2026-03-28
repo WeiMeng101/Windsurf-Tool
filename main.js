@@ -388,10 +388,22 @@ app.whenReady().then(async () => {
   // 启动 API 网关服务
   try {
     const { GatewayServer } = require('./src/gateway/server');
+    const PoolChannelBridge = require('./src/services/poolChannelBridge');
     const gatewayServer = new GatewayServer({ port: 8090 });
     gatewayServer.start().then(() => {
       state.gatewayPort = gatewayServer.port;
       console.log(`[Gateway] API 网关服务已启动 http://127.0.0.1:${state.gatewayPort}`);
+
+      // 将 Pool 服务连接到 Pipeline，启用池账号动态路由
+      try {
+        const poolService = new PoolService(getDb);
+        const poolBridge = new PoolChannelBridge(getDb);
+        const pipeline = gatewayServer.getPipeline();
+        pipeline.setPoolService(poolService, poolBridge);
+        console.log('[Gateway] Pool 动态路由已启用');
+      } catch (poolErr) {
+        console.warn('[Gateway] Pool 动态路由初始化失败（将仅使用静态 Channel）:', poolErr.message);
+      }
     }).catch(err => {
       console.error('[Gateway] API 网关启动失败:', err.message);
     });

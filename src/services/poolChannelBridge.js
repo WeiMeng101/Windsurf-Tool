@@ -151,6 +151,16 @@ class PoolChannelBridge {
       const models = PROVIDER_DEFAULT_MODELS[channelType] || [];
       const baseUrl = getCredentialValue(credentials, 'baseUrl', 'base_url', 'apiServerUrl', 'api_server_url');
 
+      // Per-key proxy URL override (optional)
+      const proxyUrl = getCredentialValue(credentials, 'proxy_url', 'proxyUrl');
+
+      // Per-key custom headers (optional, must be a plain object)
+      const customHeaders = isPlainObject(credentials.custom_headers)
+        ? credentials.custom_headers
+        : isPlainObject(credentials.customHeaders)
+          ? credentials.customHeaders
+          : null;
+
       // Build credentials payload.  Codex accounts pass through the full JWT
       // credential set (access_token, refresh_token, id_token) so the pipeline
       // can use / refresh them.
@@ -168,7 +178,7 @@ class PoolChannelBridge {
             apiServerUrl: getCredentialValue(credentials, 'apiServerUrl', 'api_server_url'),
           };
 
-      return {
+      const result = {
         accountId,
         providerType: pType,
         channelType,
@@ -179,6 +189,16 @@ class PoolChannelBridge {
         email: account.email || '',
         display_name: account.display_name || '',
       };
+
+      // Attach per-key proxy/headers when present
+      if (proxyUrl) {
+        result.proxy_url = proxyUrl;
+      }
+      if (customHeaders) {
+        result.custom_headers = customHeaders;
+      }
+
+      return result;
     }
 
     return null;

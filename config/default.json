@@ -1,0 +1,52 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18371,
+    "tls": {
+      "enable": false,
+      "cert": "",
+      "key": ""
+    }
+  },
+  "gateway": {
+    "maxRetries": 3,
+    "maxRetryInterval": 30,
+    "routingStrategy": "health-first",
+    "proxyUrl": "",
+    "passthroughHeaders": false,
+    "nonStreamKeepalive": 0,
+    "streaming": {
+      "keepaliveSeconds": 15,
+      "bootstrapRetries": 1
+    },
+    "wsAuth": false
+  },
+  "pool": {
+    "healthCheckInterval": 300000,
+    "bufferSize": 10,
+    "autoRecovery": true
+  },
+  "quota": {
+    "autoSwitch": true,
+    "warningThreshold": 0.8,
+    "switchPreviewModel": true
+  },
+  "security": {
+    "cloaking": {
+      "enabled": false
+    },
+    "rateLimitPerMinute": 60,
+    "auditLog": true
+  },
+  "statistics": {
+    "enabled": true
+  },
+  "logging": {
+    "toFile": false,
+    "level": "info"
+  },
+  "auth": {
+    "workerSecretKey": "",
+    "firebaseApiKey": ""
+  }
+}

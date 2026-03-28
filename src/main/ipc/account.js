@@ -1017,6 +1017,10 @@ function registerHandlers(mainWindow, deps) {
       return result;
     } catch (error) {
       console.error('切换账号失败:', error);
+      // Notify renderer via event so the switch UI can display the error
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('switch-error', { message: error.message, stack: error.stack });
+      }
       return { success: false, error: error.message };
     }
   });

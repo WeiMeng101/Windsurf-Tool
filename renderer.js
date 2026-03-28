@@ -118,6 +118,7 @@ window.ipcRenderer.on('version-update-available', (_e, d) => { if (d?.latestVers
 window.ipcRenderer.on('maintenance-mode-active', () => versionCheck.activateMaintenanceMode());
 window.ipcRenderer.on('maintenance-mode-ended', () => versionCheck.deactivateMaintenanceMode());
 window.ipcRenderer.on('api-unavailable', (_e, err) => { if (!state.isApiUnavailable) { state.isApiUnavailable = true; modals.showApiUnavailableModal(err); } });
+window.ipcRenderer.on('devtools-blocked', (_e, data) => { if (typeof showCustomAlert === 'function') showCustomAlert(`开发者工具已禁用: ${data?.reason || '受限模式'}`, 'warning'); });
 registrationRenderer.setupRegistrationIpcListeners();
 tokenRenderer.setupTokenIpcListeners();
 switchRenderer.setupSwitchIpcListeners();

@@ -34,7 +34,43 @@ class PoolManager {
   }
 
   init() {
+    this._setupEventListeners();
     this.render();
+  }
+
+  // ---- Real-time event listeners from main process ----
+
+  _setupEventListeners() {
+    // Pool status changed — refresh UI when accounts transition state
+    window.ipcRenderer.on('pool-status-changed', (_event, data) => {
+      console.log('[Pool] Status changed:', data);
+      this.render();
+    });
+
+    // Token refreshed — refresh UI to show updated credentials
+    window.ipcRenderer.on('pool-token-refreshed', (_event, data) => {
+      console.log('[Pool] Token refreshed:', data);
+      this.render();
+    });
+
+    // Pool sync complete — refresh UI after bulk sync
+    window.ipcRenderer.on('pool-sync-complete', (_event, data) => {
+      console.log('[Pool] Sync complete:', data);
+      this.render();
+    });
+
+    // Auto-bind card trigger from main process (fallback for IPC-based binding)
+    window.ipcRenderer.on('trigger-auto-bind-card', (_event, data) => {
+      if (data && data.email) {
+        if (typeof window.startAutoBindCardForEmail === 'function') {
+          window.startAutoBindCardForEmail(data.email);
+        } else if (window.AutoBindCard && typeof window.AutoBindCard.startAutoBindCardForEmail === 'function') {
+          window.AutoBindCard.startAutoBindCardForEmail(data.email);
+        } else {
+          console.warn('[Pool] No auto-bind-card handler available for email:', data.email);
+        }
+      }
+    });
   }
 
   // ---- Data fetching ----

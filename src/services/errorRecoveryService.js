@@ -212,19 +212,45 @@ class ErrorRecoveryService {
 
   /**
    * Scan for recoverable accounts and apply recovery.
+   * Also detects accounts stuck in 'in_use' status beyond a timeout threshold
+   * and releases them back to 'available'.
    * @param {object} poolService
    * @param {object} [accountService] - Optional AccountService for credential lookup during refresh
+   * @param {object} [options]
+   * @param {number} [options.inUseTimeoutMs=600000] - How long an account can stay in_use before forced release (10 min)
    * @returns {Promise<{ recovered: Array, disabled: Array, cooldowns: Array, skipped: Array, summary: object }>}
    */
-  async scanAndRecover(poolService, accountService) {
+  async scanAndRecover(poolService, accountService, options = {}) {
     const recovered = [];
     const disabled = [];
     const cooldowns = [];
     const skipped = [];
     const seen = new Set();
 
+    const inUseTimeoutMs = options.inUseTimeoutMs ?? 600000; // 10 minutes
+
     const errorAccounts = poolService.getAll({ status: 'error' });
     const cooldownAccounts = poolService.getAll({ status: 'cooldown' });
+
+    // Recover accounts stuck in 'in_use' beyond the timeout
+    const inUseAccounts = poolService.getAll({ status: 'in_use' });
+    const now = Date.now();
+    for (const account of inUseAccounts) {
+      if (!account || seen.has(account.id)) continue;
+      seen.add(account.id);
+      const lastUsed = account.last_used_at ? new Date(account.last_used_at).getTime() : 0;
+      const updatedAt = account.updated_at ? new Date(account.updated_at).getTime() : 0;
+      const stuckSince = Math.max(lastUsed, updatedAt) || 0;
+      if (stuckSince > 0 && (now - stuckSince) > inUseTimeoutMs) {
+        try {
+          poolService.transitionStatus(account.id, 'available', 'auto-recovery: in_use timeout', 'system');
+          recovered.push({ id: account.id, label: '使用超时', action: 'in_use_released' });
+          console.log(`[ErrorRecovery] Account ${account.id} stuck in_use for ${Math.round((now - stuckSince) / 1000)}s, released`);
+        } catch (err) {
+          skipped.push({ id: account.id, reason: `in_use release failed: ${err.message}` });
+        }
+      }
+    }
 
     const now = Date.now();
 

@@ -7,7 +7,7 @@ const logger = require('./logger');
 const { getDb, closeDb } = require('./db');
 const { cacheManager } = require('./cache');
 const { tracingMiddleware } = require('./middleware/tracing');
-const { apiKeyAuth, optionalAuth } = require('./middleware/auth');
+const { apiKeyAuth, optionalAuth, rateLimit } = require('./middleware/auth');
 const healthRoutes = require('./routes/health');
 const adminRoutes = require('./routes/admin');
 
@@ -53,19 +53,19 @@ class GatewayServer {
     // Admin API (management)
     this.app.use('/api/admin', adminRoutes);
 
-    // OpenAI-compatible API
-    this.app.post('/v1/chat/completions', apiKeyAuth, (req, res) => this.handleChatCompletions(req, res));
-    this.app.post('/v1/responses', apiKeyAuth, (req, res) => this.handleResponses(req, res));
+    // OpenAI-compatible API (auth + rate limit)
+    this.app.post('/v1/chat/completions', apiKeyAuth, rateLimit, (req, res) => this.handleChatCompletions(req, res));
+    this.app.post('/v1/responses', apiKeyAuth, rateLimit, (req, res) => this.handleResponses(req, res));
     this.app.get('/v1/models', optionalAuth, (req, res) => this.handleListModels(req, res));
-    this.app.post('/v1/embeddings', apiKeyAuth, (req, res) => this.handleEmbeddings(req, res));
-    this.app.post('/v1/images/generations', apiKeyAuth, (req, res) => this.handleImageGeneration(req, res));
+    this.app.post('/v1/embeddings', apiKeyAuth, rateLimit, (req, res) => this.handleEmbeddings(req, res));
+    this.app.post('/v1/images/generations', apiKeyAuth, rateLimit, (req, res) => this.handleImageGeneration(req, res));
 
     // Anthropic-compatible API
-    this.app.post('/v1/messages', apiKeyAuth, (req, res) => this.handleAnthropicMessages(req, res));
+    this.app.post('/v1/messages', apiKeyAuth, rateLimit, (req, res) => this.handleAnthropicMessages(req, res));
 
     // Gemini-compatible API
-    this.app.post('/v1beta/models/:model\\:generateContent', apiKeyAuth, (req, res) => this.handleGeminiGenerate(req, res));
-    this.app.post('/v1beta/models/:model\\:streamGenerateContent', apiKeyAuth, (req, res) => this.handleGeminiStream(req, res));
+    this.app.post('/v1beta/models/:model\\:generateContent', apiKeyAuth, rateLimit, (req, res) => this.handleGeminiGenerate(req, res));
+    this.app.post('/v1beta/models/:model\\:streamGenerateContent', apiKeyAuth, rateLimit, (req, res) => this.handleGeminiStream(req, res));
   }
 
   setupErrorHandling() {
@@ -202,6 +202,21 @@ class GatewayServer {
       try {
         getDb();
         logger.info('Gateway database initialized');
+
+        // Restore persisted load balancer routing strategy
+        try {
+          const db = getDb();
+          const row = db.prepare("SELECT value FROM systems WHERE key = 'lb_routing_strategy'").get();
+          if (row && row.value) {
+            const { loadBalancer, VALID_STRATEGIES } = require('./biz/loadBalancer');
+            if (VALID_STRATEGIES.has(row.value)) {
+              loadBalancer.setStrategy(row.value);
+              logger.info(`Restored routing strategy from DB: ${row.value}`);
+            }
+          }
+        } catch (strategyErr) {
+          logger.warn('Failed to restore routing strategy', { error: strategyErr.message });
+        }
       } catch (err) {
         logger.error('Failed to initialize database', { error: err.message });
         return reject(err);
@@ -232,14 +247,24 @@ class GatewayServer {
       if (this._pipeline && this._pipeline.shutdown) {
         this._pipeline.shutdown();
       }
-      cacheManager.close();
-      closeDb();
       if (this.server) {
+        // Stop accepting new connections
         this.server.close(() => {
           logger.info('Gateway server stopped');
+          cacheManager.close();
+          closeDb();
           resolve();
         });
+        // Force close all idle keep-alive connections after a grace period
+        // so pending requests can finish but we don't wait forever
+        setTimeout(() => {
+          if (this.server && typeof this.server.closeAllConnections === 'function') {
+            this.server.closeAllConnections();
+          }
+        }, 5000);
       } else {
+        cacheManager.close();
+        closeDb();
         resolve();
       }
     });

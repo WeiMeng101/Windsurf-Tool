@@ -469,6 +469,65 @@ const migrations = [
       );
       CREATE INDEX IF NOT EXISTS idx_status_history_account ON pool_status_history(pool_account_id, created_at);
     `
+  },
+  {
+    version: 3,
+    name: 'extend_pool_source_values',
+    sql: `
+      -- SQLite 不支持 ALTER CHECK，需要重建表来扩展 source 允许值
+      CREATE TABLE IF NOT EXISTS pool_accounts_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider_type TEXT NOT NULL DEFAULT 'windsurf'
+          CHECK(provider_type IN ('windsurf','codex','openai','anthropic','gemini',
+            'deepseek','moonshot','doubao','zhipu','openrouter','xai',
+            'siliconflow','ppio','claudecode','other')),
+        email TEXT DEFAULT '',
+        display_name TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'available'
+          CHECK(status IN ('available','in_use','error','cooldown','disabled')),
+        credentials TEXT DEFAULT '{}',
+        health_score REAL DEFAULT 100.0,
+        success_count INTEGER DEFAULT 0,
+        error_count INTEGER DEFAULT 0,
+        total_requests INTEGER DEFAULT 0,
+        last_used_at TEXT,
+        last_error TEXT DEFAULT '',
+        cooldown_until TEXT,
+        tags TEXT DEFAULT '[]',
+        remark TEXT DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual'
+          CHECK(source IN ('manual','registration','import','codex','legacy_sync','legacy-codex','file_import','file_watch','bulk-import')),
+        source_ref TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      INSERT OR IGNORE INTO pool_accounts_new SELECT * FROM pool_accounts;
+      DROP TABLE pool_accounts;
+      ALTER TABLE pool_accounts_new RENAME TO pool_accounts;
+      CREATE INDEX IF NOT EXISTS idx_pool_status ON pool_accounts(status, deleted_at);
+      CREATE INDEX IF NOT EXISTS idx_pool_provider ON pool_accounts(provider_type, deleted_at);
+    `
+  },
+  {
+    version: 4,
+    name: 'audit_logs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+        action TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        resource_id TEXT,
+        user_ip TEXT DEFAULT '',
+        details TEXT DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'success' CHECK(status IN ('success','failure')),
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action, created_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs(resource_type, created_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
+    `
   }
 ];
 

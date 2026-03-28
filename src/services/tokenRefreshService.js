@@ -71,6 +71,7 @@ class TokenRefreshService {
 
     switch (providerType) {
       case 'codex':
+      case 'windsurf':
         return this.refreshCodexToken(refreshToken);
       default:
         throw new Error(`Token refresh not supported for provider: ${account.provider_type || 'unknown'}`);

@@ -302,6 +302,23 @@ function registerHandlers(mainWindow, deps) {
     }
   });
 
+  // Auto bind card for a pool account (fallback when renderer-side bindCard unavailable)
+  // Delegates to the renderer's card binding UI via mainWindow webContents
+  ipcMain.handle('auto-bind-card', async (event, payload) => {
+    try {
+      const { email } = getObjectArg(payload);
+      if (!email) return { success: false, error: 'Email is required' };
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return { success: false, error: 'Main window not available' };
+      }
+      // Trigger the card binding flow in the renderer process
+      mainWindow.webContents.send('trigger-auto-bind-card', { email });
+      return { success: true, data: { triggered: true, email } };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // Sync pool accounts to gateway channels
   ipcMain.handle('pool-sync-channels', async (event) => {
     try {
