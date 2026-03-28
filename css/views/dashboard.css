@@ -1,26 +1,65 @@
 /* === Dashboard View === */
 #dashboard { font-size: 13px; }
-#dashboard.view-content.active { display: block; overflow-y: auto; padding: 24px 28px; }
+#dashboard.view-content.active {
+  display: block;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+#dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.dashboard-loading,
+.dash-empty-state {
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-light, #e2e8f0);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
 
 .dash-section {
-  background: rgba(255,255,255,0.03); border: 1px solid var(--border-light, #e2e8f0);
-  border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 .dash-section-title {
   font-size: 14px; font-weight: 600; color: var(--text-primary, #f1f5f9);
   margin-bottom: 16px; display: flex; align-items: center;
 }
 
-.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+.dash-grid-gateway {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
 .dash-stat-card {
   background: rgba(255,255,255,0.04); border: 1px solid var(--border-light, #e2e8f0);
-  border-radius: 10px; padding: 14px; text-align: center;
+  border-radius: 12px; padding: 14px; text-align: center;
+  min-height: 92px;
 }
-.dash-stat-value { font-size: 24px; font-weight: 700; }
+.dash-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  word-break: break-word;
+}
 .dash-stat-label { font-size: 11px; color: var(--text-muted, #64748b); margin-top: 4px; }
 
 .dash-health {
-  margin-top: 14px; font-size: 12px; color: var(--text-secondary, #94a3b8);
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
   display: flex; align-items: center; gap: 6px;
 }
 .dash-health-value { font-size: 18px; font-weight: 700; }
@@ -28,13 +67,71 @@
 .dash-health-value.warn { color: #f59e0b; }
 .dash-health-value.bad { color: #ef4444; }
 
+.dash-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.dash-status-badge.running {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.24);
+}
+.dash-status-badge.stopped {
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.22);
+}
+
 .dash-error-list { display: flex; flex-direction: column; gap: 8px; }
 .dash-error-item {
-  background: rgba(255,255,255,0.03); border: 1px solid var(--border-light, #e2e8f0);
-  border-radius: 8px; padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px;
+}
+.dash-error-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
 }
 .dash-error-name {
-  font-size: 13px; font-weight: 500; color: var(--text-primary, #f1f5f9);
-  display: flex; align-items: center; gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  min-width: 0;
+  word-break: break-word;
 }
-.dash-error-detail { font-size: 11px; color: var(--text-muted, #64748b); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-error-detail {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-error-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+@media (max-width: 900px) {
+  #dashboard.view-content.active { padding: 18px; }
+}
+
+@media (max-width: 640px) {
+  .dash-section { padding: 16px; }
+  .dash-error-head { flex-direction: column; }
+  .dash-error-detail {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}

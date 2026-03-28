@@ -10,7 +10,7 @@ const fs = require('fs').promises;
 let currentRegistrationBot = null;
 
 function registerHandlers(mainWindow, deps) {
-  const { ACCOUNTS_FILE, accountsFileLock, appRoot, poolService } = deps;
+  const { ACCOUNTS_FILE, accountsFileLock, appRoot, poolService, accountService } = deps;
 
   // 批量注册账号
   ipcMain.handle('batch-register', async (event, config) => {
@@ -73,7 +73,7 @@ function registerHandlers(mainWindow, deps) {
           
           let accounts = [];
           try {
-            const data = await fs.readFile(accountsFilePath, 'utf-8');
+            const data = await accountService.readFileRaw(accountsFilePath);
             accounts = JSON.parse(data);
             if (!Array.isArray(accounts)) {
               accounts = [];
@@ -102,14 +102,22 @@ function registerHandlers(mainWindow, deps) {
           // 先创建备份
           if (accounts.length > 0) {
             try {
-              await fs.writeFile(accountsFilePath + '.backup', JSON.stringify(accounts, null, 2), { encoding: 'utf-8' });
+              await accountService.writeFileRaw(
+                accountsFilePath + '.backup',
+                JSON.stringify(accounts, null, 2),
+                { encoding: 'utf-8' }
+              );
             } catch (backupError) {
               console.warn('创建备份失败:', backupError.message);
             }
           }
           
           // 保存文件
-          await fs.writeFile(accountsFilePath, JSON.stringify(accounts, null, 2), { encoding: 'utf-8' });
+          await accountService.writeFileRaw(
+            accountsFilePath,
+            JSON.stringify(accounts, null, 2),
+            { encoding: 'utf-8' }
+          );
           console.log(`账号已添加: ${account.email} (总数: ${accounts.length})`);
 
           // Auto-add to pool

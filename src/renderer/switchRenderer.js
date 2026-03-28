@@ -69,6 +69,7 @@ function setupSwitchIpcListeners() {
 // ==================== Module exports ====================
 
 module.exports = {
+  setupSwitchIpcListeners,
   windowExports: {
     switchTabLogic,
     switchTab,

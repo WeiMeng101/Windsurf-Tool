@@ -143,6 +143,7 @@ function setupRegistrationIpcListeners() {
 // ==================== Module exports ====================
 
 module.exports = {
+  setupRegistrationIpcListeners,
   windowExports: {
     startBatchRegister,
     cancelBatchRegister,

@@ -4,9 +4,11 @@ const path = require('path');
 const { app } = require('electron');
 
 let Database;
+let databaseLoadError = null;
 try {
   Database = require('better-sqlite3');
 } catch (e) {
+  databaseLoadError = e;
   console.error('Failed to load better-sqlite3:', e.message);
 }
 
@@ -19,6 +21,15 @@ function getDbPath() {
 
 function getDb() {
   if (db) return db;
+  if (!Database) {
+    const error = new Error(
+      `better-sqlite3 未能按当前 Electron 运行时加载，请执行 "npm run rebuild:native" ` +
+      `(内部会调用 "electron-builder install-app-deps") 后重新启动应用。` +
+      (databaseLoadError?.message ? ` 原始错误: ${databaseLoadError.message}` : '')
+    );
+    error.cause = databaseLoadError;
+    throw error;
+  }
 
   const dbPath = getDbPath();
   db = new Database(dbPath, { verbose: null });

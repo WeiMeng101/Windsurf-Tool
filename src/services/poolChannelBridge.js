@@ -42,6 +42,40 @@ const PROVIDER_DEFAULT_MODELS = {
   claudecode: ['claude-sonnet-4-20250514'],
 };
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getAccountId(account) {
+  if (!isPlainObject(account)) return account;
+  return account.id ?? account.accountId ?? account.account_id ?? account.poolAccountId;
+}
+
+function getProviderType(account) {
+  if (!isPlainObject(account)) return 'openai';
+  return account.provider_type ?? account.providerType ?? 'openai';
+}
+
+function getHealthScore(account) {
+  if (!isPlainObject(account)) return 100;
+  return account.health_score ?? account.healthScore ?? 100;
+}
+
+function getCredentials(account) {
+  if (!isPlainObject(account) || !isPlainObject(account.credentials)) return {};
+  return account.credentials;
+}
+
+function getCredentialValue(credentials, ...keys) {
+  for (const key of keys) {
+    const value = credentials[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return '';
+}
+
 class PoolChannelBridge {
   /**
    * @param {() => import('better-sqlite3').Database} getDb
@@ -62,39 +96,55 @@ class PoolChannelBridge {
     let updated = 0;
 
     for (const account of poolAccounts) {
-      if (!account.credentials || (!account.credentials.apiKey && !account.credentials.api_key)) continue;
+      const accountId = getAccountId(account);
+      if (accountId === undefined || accountId === null || accountId === '') continue;
 
-      const channelName = `${POOL_TAG}${account.id}`;
-      const channelType = PROVIDER_TYPE_MAP[account.provider_type] || 'openai';
+      const credentials = getCredentials(account);
+      const apiKey = getCredentialValue(credentials, 'apiKey', 'api_key');
+      const hasApiKey = Boolean(String(apiKey).trim());
+
+      const channelName = `${POOL_TAG}${accountId}`;
+      const channelType = PROVIDER_TYPE_MAP[getProviderType(account)] || 'openai';
       const models = PROVIDER_DEFAULT_MODELS[channelType] || [];
-      const baseUrl = account.credentials.base_url || account.credentials.apiServerUrl || '';
-      const credentials = JSON.stringify({
-        api_key: account.credentials.apiKey || account.credentials.api_key || '',
-        refresh_token: account.credentials.refreshToken || '',
-        apiServerUrl: account.credentials.apiServerUrl || '',
+      const baseUrl = getCredentialValue(credentials, 'baseUrl', 'base_url', 'apiServerUrl', 'api_server_url');
+      const serializedCredentials = JSON.stringify({
+        api_key: apiKey,
+        refresh_token: getCredentialValue(credentials, 'refreshToken', 'refresh_token'),
+        apiServerUrl: getCredentialValue(credentials, 'apiServerUrl', 'api_server_url'),
       });
-      const weight = Math.round((account.health_score ?? 100) / 10);
-      const status = account.status === 'available' ? 'enabled' : 'disabled';
-      const tags = JSON.stringify([...(account.tags || []), 'pool']);
+      const weight = Math.round(getHealthScore(account) / 10);
+      const status = account.status === 'available' && hasApiKey ? 'enabled' : 'disabled';
+      const tags = JSON.stringify([...(Array.isArray(account.tags) ? account.tags : []), 'pool']);
 
       const existing = db.prepare(
-        "SELECT id FROM channels WHERE name = ? AND deleted_at IS NULL"
+        "SELECT id, deleted_at FROM channels WHERE name = ? ORDER BY deleted_at IS NULL DESC, updated_at DESC LIMIT 1"
       ).get(channelName);
 
       if (existing) {
         db.prepare(`
           UPDATE channels SET type = ?, base_url = ?, credentials = ?,
             supported_models = ?, status = ?, ordering_weight = ?, tags = ?,
+            deleted_at = NULL,
             updated_at = datetime('now')
-          WHERE id = ? AND deleted_at IS NULL
-        `).run(channelType, baseUrl, credentials, JSON.stringify(models), status, weight, tags, existing.id);
+          WHERE id = ?
+        `).run(channelType, baseUrl, serializedCredentials, JSON.stringify(models), status, weight, tags, existing.id);
         updated++;
-      } else {
+      } else if (hasApiKey) {
         db.prepare(`
           INSERT INTO channels (type, name, base_url, credentials, supported_models,
             status, ordering_weight, tags, remark, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-        `).run(channelType, channelName, baseUrl, credentials, JSON.stringify(models), status, weight, tags, `Pool: ${account.email || account.display_name}`);
+        `).run(
+          channelType,
+          channelName,
+          baseUrl,
+          serializedCredentials,
+          JSON.stringify(models),
+          status,
+          weight,
+          tags,
+          `Pool: ${account.email || account.display_name || channelName}`,
+        );
         created++;
       }
     }
@@ -109,23 +159,28 @@ class PoolChannelBridge {
    */
   removeOrphaned(activePoolIds) {
     const db = this._getDb();
-    const idSet = new Set(activePoolIds.map(id => `${POOL_TAG}${id}`));
+    const idSet = new Set(
+      activePoolIds
+        .map(id => getAccountId(id))
+        .filter(id => id !== undefined && id !== null && id !== '')
+        .map(id => `${POOL_TAG}${id}`)
+    );
 
     const orphaned = db.prepare(
-      "SELECT id FROM channels WHERE name LIKE ? AND deleted_at IS NULL"
+      "SELECT id, name FROM channels WHERE name LIKE ? AND deleted_at IS NULL"
     ).all(`${POOL_TAG}%`);
 
-    let removed = 0;
+    let disabled = 0;
     for (const row of orphaned) {
       if (!idSet.has(row.name)) {
         db.prepare(
-          "UPDATE channels SET deleted_at = datetime('now'), updated_at = datetime('now'), status = 'disabled' WHERE id = ?"
+          "UPDATE channels SET updated_at = datetime('now'), status = 'disabled' WHERE id = ? AND deleted_at IS NULL"
         ).run(row.id);
-        removed++;
+        disabled++;
       }
     }
 
-    return removed;
+    return disabled;
   }
 }
 

@@ -68,7 +68,7 @@ class PoolManager {
     if (!el) return;
     const counts = { total: accounts.length, available: 0, in_use: 0, error: 0, cooldown: 0, disabled: 0 };
     accounts.forEach(a => { if (counts[a.status] !== undefined) counts[a.status]++; });
-    el.innerHTML = [
+    const statsHtml = [
       { label: '总计', count: counts.total },
       { label: '可用', count: counts.available },
       { label: '使用中', count: counts.in_use },
@@ -100,7 +100,7 @@ class PoolManager {
         recoverEl.innerHTML = '<i data-lucide="heart-pulse" style="width:14px;height:14px;margin-right:4px;"></i>恢复检查';
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }
-    }.bind(this));
+    });
   }
 
   _renderFilterBar() {
@@ -206,16 +206,21 @@ class PoolManager {
   }
 
   _bindCardActions(container) {
-    container.querySelectorAll('.pool-action-btn[data-action]').forEach(btn => {
+      container.querySelectorAll('.pool-action-btn[data-action]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const action = btn.dataset.action;
         const id = parseInt(btn.dataset.id, 10);
-        if (action === 'enable') await this.toggleAccountStatus(id, 'disabled');
-        else if (action === 'disable') await this.toggleAccountStatus(id, 'active');
+        if (action === 'enable') await this.toggleAccountStatus(id, true);
+        else if (action === 'disable') await this.toggleAccountStatus(id, false);
         else if (action === 'delete') await this.deleteAccount(id);
         else if (action === 'bind') {
           const email = btn.dataset.email;
-          if (email && window.switchView) { window.switchView('autoBindCard'); if (window.AutoBindCard?.onViewSwitch) window.AutoBindCard.onViewSwitch(); }
+          if (email && typeof window.startAutoBindCardForEmail === 'function') {
+            await window.startAutoBindCardForEmail(email);
+          } else if (email && window.switchView) {
+            window.switchView('autoBindCard');
+            if (window.AutoBindCard?.onViewSwitch) window.AutoBindCard.onViewSwitch();
+          }
         }
       });
     });
@@ -223,16 +228,16 @@ class PoolManager {
 
   // ---- Actions ----
 
-  async toggleAccountStatus(accountId, currentStatus) {
-    const channel = currentStatus === 'disabled' ? 'pool-enable-account' : 'pool-disable-account';
-    const r = await window.ipcRenderer.invoke(channel, { accountId });
+  async toggleAccountStatus(accountId, enable) {
+    const channel = enable ? 'pool-enable-account' : 'pool-disable-account';
+    const r = await window.ipcRenderer.invoke(channel, accountId);
     if (r.success) this.render();
     else if (window.showCustomAlert) window.showCustomAlert(r.error || '操作失败', 'error');
   }
 
   async deleteAccount(accountId) {
     if (!confirm('确认删除此账号？')) return;
-    const r = await window.ipcRenderer.invoke('pool-delete-account', { accountId });
+    const r = await window.ipcRenderer.invoke('pool-delete-account', accountId);
     if (r.success) this.render();
     else if (window.showCustomAlert) window.showCustomAlert(r.error || '删除失败', 'error');
   }
@@ -246,7 +251,7 @@ class PoolManager {
       if (window.showCustomAlert) window.showCustomAlert('请选择供应商', 'warning');
       return;
     }
-    const r = await window.ipcRenderer.invoke('pool-add-api-key', { providerType, apiKey, baseUrl, displayName });
+    const r = await window.ipcRenderer.invoke('pool-add-api-key', providerType, apiKey, baseUrl, displayName);
     if (r.success) {
       this._closeModal();
       this.render();

@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs').promises;
 
 function registerHandlers(mainWindow, deps) {
-  const { state } = deps;
+  const { state, userDataPath } = deps;
 
   // 监听来自渲染进程的强制更新状态
   ipcMain.on('set-force-update-status', (event, status) => {
@@ -98,6 +98,122 @@ function registerHandlers(mainWindow, deps) {
         success: false,
         error: error.message
       };
+    }
+  });
+
+  // 检查维护模式
+  ipcMain.handle('check-maintenance-mode', async () => {
+    return {
+      success: true,
+      inMaintenance: !!state.isMaintenanceModeActive,
+      maintenanceInfo: state.maintenanceInfo || {
+        enabled: !!state.isMaintenanceModeActive,
+        message: state.isMaintenanceModeActive ? '服务器正在维护中，请稍后再试' : '',
+        timestamp: new Date().toISOString(),
+      },
+    };
+  });
+
+  // 退出维护模式
+  ipcMain.handle('exit-maintenance-mode', async () => {
+    state.isMaintenanceModeActive = false;
+    state.maintenanceInfo = null;
+    return { success: true };
+  });
+
+  // 检查更新
+  ipcMain.handle('check-for-updates', async () => {
+    try {
+      const currentVersion = app.getVersion();
+      return {
+        success: true,
+        hasUpdate: false,
+        forceUpdate: false,
+        currentVersion,
+        latestVersion: currentVersion,
+        downloadUrl: 'https://github.com/crispvibe/Windsurf-Tool/releases/latest',
+        updateMessage: '',
+      };
+    } catch (error) {
+      console.error('检查更新失败:', error);
+      return {
+        success: false,
+        hasUpdate: false,
+        forceUpdate: false,
+        currentVersion: '0.0.0',
+        latestVersion: '0.0.0',
+        error: error.message,
+      };
+    }
+  });
+
+  // 检测 Windsurf 相关路径
+  ipcMain.handle('detect-windsurf-paths', async () => {
+    try {
+      const { WindsurfPathService } = require(path.join(deps.appRoot, 'js', 'accountSwitcher'));
+      const allPaths = WindsurfPathService.getAllPaths();
+      const entries = await Promise.all(
+        Object.entries(allPaths).map(async ([key, targetPath]) => {
+          try {
+            await fs.access(targetPath);
+            return [key, { path: targetPath, exists: true }];
+          } catch {
+            return [key, { path: targetPath, exists: false }];
+          }
+        })
+      );
+
+      return Object.fromEntries(entries);
+    } catch (error) {
+      console.error('检测 Windsurf 路径失败:', error);
+      return {
+        error: { path: '', exists: false, message: error.message },
+      };
+    }
+  });
+
+  // 获取当前机器标识
+  ipcMain.handle('get-machine-id', async () => {
+    try {
+      const { WindsurfPathService } = require(path.join(deps.appRoot, 'js', 'accountSwitcher'));
+      const machineIdPath = path.join(WindsurfPathService.getDataDir(), 'machineid');
+      const storageJsonPath = WindsurfPathService.getStorageJsonPath();
+
+      const [machineId, storageJsonRaw] = await Promise.all([
+        fs.readFile(machineIdPath, 'utf8'),
+        fs.readFile(storageJsonPath, 'utf8'),
+      ]);
+
+      const storageJson = JSON.parse(storageJsonRaw);
+
+      return {
+        success: true,
+        machineId: machineId.trim(),
+        sqmId: storageJson['telemetry.sqmId'] || '',
+        devDeviceId: storageJson['telemetry.devDeviceId'] || '',
+        telemetryMachineId: storageJson['telemetry.machineId'] || '',
+      };
+    } catch (error) {
+      console.error('获取机器标识失败:', error);
+      return {
+        success: false,
+        machineId: '未安装或未配置',
+        error: error.message,
+      };
+    }
+  });
+
+  // 打开配置目录
+  ipcMain.handle('open-config-folder', async () => {
+    try {
+      const openedPath = await shell.openPath(userDataPath);
+      if (openedPath) {
+        throw new Error(openedPath);
+      }
+      return { success: true, path: userDataPath };
+    } catch (error) {
+      console.error('打开配置目录失败:', error);
+      return { success: false, error: error.message };
     }
   });
 

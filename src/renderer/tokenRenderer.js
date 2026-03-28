@@ -127,6 +127,7 @@ function setupTokenIpcListeners() {
 // ==================== Module exports ====================
 
 module.exports = {
+  setupTokenIpcListeners,
   windowExports: {
     loadTokenModule,
     batchGetAllTokens,

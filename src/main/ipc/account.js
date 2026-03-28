@@ -4,7 +4,6 @@
  */
 const { app, ipcMain, shell } = require('electron');
 const path = require('path');
-const fs = require('fs').promises;
 const os = require('os');
 
 // Module-local state
@@ -370,7 +369,7 @@ function registerHandlers(mainWindow, deps) {
       if (!Array.isArray(accounts)) {
         console.warn('账号文件格式错误，尝试从备份恢复');
         try {
-          const backupData = await fs.readFile(accountsFilePath + '.backup', 'utf-8');
+          const backupData = await accountService.readFileRaw(accountsFilePath + '.backup');
           accounts = JSON.parse(backupData);
           console.log('已从备份恢复账号数据');
         } catch (backupError) {
@@ -393,7 +392,11 @@ function registerHandlers(mainWindow, deps) {
 
       if (accounts.length > 0) {
         try {
-          await fs.writeFile(accountsFilePath + '.backup', JSON.stringify(accounts, null, 2), { encoding: 'utf-8' });
+          await accountService.writeFileRaw(
+            accountsFilePath + '.backup',
+            JSON.stringify(accounts, null, 2),
+            { encoding: 'utf-8' }
+          );
         } catch (backupError) {
           console.warn('创建备份失败:', backupError.message);
         }

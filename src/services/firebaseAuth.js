@@ -5,7 +5,20 @@
  */
 
 const axios = require('axios');
-const CONSTANTS = require('../../js/constants');
+
+function loadConstants() {
+  try {
+    return require('../renderer/constants');
+  } catch (rendererError) {
+    try {
+      return require('../../js/constants');
+    } catch {
+      throw rendererError;
+    }
+  }
+}
+
+const CONSTANTS = loadConstants();
 
 class FirebaseAuthService {
   /**

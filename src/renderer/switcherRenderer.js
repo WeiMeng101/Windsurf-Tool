@@ -1531,8 +1531,11 @@ async function getCurrentWindsurfAccount() {
 // ==================== Module exports ====================
 
 if (typeof module !== 'undefined' && module.exports) {
+  const existingExports = module.exports || {};
   module.exports = {
+    ...existingExports,
     windowExports: {
+      ...(existingExports.windowExports || {}),
       switchToAccount,
       getCurrentWindsurfAccount,
     },

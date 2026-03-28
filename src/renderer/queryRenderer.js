@@ -179,7 +179,7 @@ const AccountQuery = {
 
           // 使用IPC调用主进程获取Token（渲染进程不能直接require主进程模块）
           console.log(`[重新登录] 通过IPC调用主进程获取Token...`);
-          const loginResult = await window.ipcRenderer.invoke('get-account-token', {
+          const loginResult = await getIpcRenderer().invoke('get-account-token', {
             email: account.email,
             password: account.password
           });
@@ -259,7 +259,7 @@ const AccountQuery = {
 
             // 使用IPC调用主进程获取Token（渲染进程不能直接require主进程模块）
             console.log(`[401重试] 通过IPC调用主进程获取Token...`);
-            const loginResult = await window.ipcRenderer.invoke('get-account-token', {
+            const loginResult = await getIpcRenderer().invoke('get-account-token', {
               email: account.email,
               password: account.password
             });
@@ -378,6 +378,18 @@ const QueryState = {
   timer: null
 };
 
+function getRendererWindow() {
+  return typeof window !== 'undefined' ? window : globalThis.window || null;
+}
+
+function getIpcRenderer() {
+  const rendererWindow = getRendererWindow();
+  if (!rendererWindow?.ipcRenderer) {
+    throw new Error('渲染进程 IPC 不可用');
+  }
+  return rendererWindow.ipcRenderer;
+}
+
 /**
  * 查询并更新账号列表的订阅和积分信息
  */
@@ -391,8 +403,13 @@ async function updateAccountsUsage() {
   QueryState.isQuerying = true;
 
   try {
+    const rendererWindow = getRendererWindow();
+    if (!rendererWindow?.ipcRenderer) {
+      return;
+    }
+
     // 获取所有账号
-    const result = await window.ipcRenderer.invoke('get-accounts');
+    const result = await rendererWindow.ipcRenderer.invoke('get-accounts');
 
     if (!result || !result.success || !result.accounts) {
       return;
@@ -435,7 +452,7 @@ async function updateAccountsUsage() {
             }
 
             // 更新账号信息到JSON文件
-            await window.ipcRenderer.invoke('update-account', updateData);
+            await rendererWindow.ipcRenderer.invoke('update-account', updateData);
             updateCount++;
           }
         } catch (error) {
@@ -445,8 +462,9 @@ async function updateAccountsUsage() {
     }
 
     // 重新加载账号列表以刷新UI
-    if (typeof window.loadAccounts === 'function') {
-      await window.loadAccounts();
+    const activeWindow = getRendererWindow();
+    if (activeWindow === rendererWindow && typeof activeWindow.loadAccounts === 'function') {
+      await activeWindow.loadAccounts();
     }
   } catch (error) {
     console.error('[自动查询] 查询失败:', error);
@@ -581,7 +599,8 @@ function setupQueryListeners() {
   console.log(`[自动查询] 从配置读取间隔: ${interval / 60000} 分钟`);
   startAutoQuery(interval);
 
-  window.addEventListener('beforeunload', () => {
+  const rendererWindow = getRendererWindow();
+  rendererWindow?.addEventListener('beforeunload', () => {
     stopAutoQuery();
     console.log('[自动查询] 页面卸载，已清理定时器');
   });
@@ -593,6 +612,7 @@ function setupQueryListeners() {
 // ==================== Module exports ====================
 
 module.exports = {
+  setupQueryListeners,
   AccountQuery,
   windowExports: {
     AccountQuery,

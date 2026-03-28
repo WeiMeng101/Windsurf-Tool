@@ -6,6 +6,9 @@
 const AutoBindCard = {
   // 当前选中的账号
   selectedAccount: null,
+
+  // 从池卡片进入时预选的账号邮箱
+  pendingAccountEmail: '',
   
   // 绑卡配置
   config: {
@@ -796,6 +799,21 @@ const AutoBindCard = {
   },
 
   /**
+   * 从 pool 卡片启动自动绑卡，并预选对应账号
+   */
+  async startAutoBindCardForEmail(email) {
+    if (!email) return;
+    this.pendingAccountEmail = email;
+    if (typeof window.switchView === 'function') {
+      window.switchView('autoBindCard');
+      return;
+    }
+    if (typeof this.onViewSwitch === 'function') {
+      await this.onViewSwitch();
+    }
+  },
+
+  /**
    * 关闭弹窗
    */
   closeModal() {
@@ -887,6 +905,10 @@ const AutoBindCard = {
     
     const email = selectedOption.getAttribute('data-email');
     const password = selectedOption.getAttribute('data-password');
+    this.selectedAccount = {
+      id: parseInt(selectedOption.value, 10),
+      email,
+    };
     
     // 保存配置
     this.config.billingName = document.getElementById('bindCardName').value;
@@ -969,6 +991,8 @@ const AutoBindCard = {
       
       // 5. 显示卡片信息供用户填写
       this.updateStatus('浏览器已打开，请在浏览器中完成支付', 'success');
+
+      await this.updatePoolTags(['bound']);
       
       // 显示卡片信息弹窗
       this.showCardInfoModal(cardInfo, this.config);
@@ -1174,6 +1198,52 @@ const AutoBindCard = {
     
     if (typeof showCenterMessage === 'function') {
       showCenterMessage(`已加载 ${accounts.length} 个可绑卡账号（共 ${allAccounts.length} 个）`, 'success');
+    }
+  },
+
+  /**
+   * 在自动绑卡页预选来自 pool 卡片的账号
+   */
+  _applyPendingAccountSelection() {
+    const email = this.pendingAccountEmail;
+    if (!email) return;
+
+    const select = document.getElementById('autoBindAccountSelect');
+    if (!select) return;
+
+    const option = Array.from(select.options).find(opt => opt.getAttribute('data-email') === email);
+    if (!option) return;
+
+    select.value = option.value;
+    this.selectedAccount = {
+      id: parseInt(option.value, 10),
+      email,
+    };
+    this.pendingAccountEmail = '';
+  },
+
+  /**
+   * 成功进入绑卡流程后更新 pool tags
+   */
+  async updatePoolTags(tags = ['bound']) {
+    const accountId = this.selectedAccount?.id;
+    if (!accountId || !window.ipcRenderer) return;
+
+    try {
+      const result = await window.ipcRenderer.invoke('pool-update-tags', {
+        accountId,
+        tags,
+      });
+      if (!result?.success) {
+        console.warn('更新 pool tags 失败:', result?.error || 'unknown error');
+        return;
+      }
+
+      if (window._poolInstance?.render) {
+        window._poolInstance.render();
+      }
+    } catch (error) {
+      console.warn('更新 pool tags 异常:', error);
     }
   },
 
@@ -1464,6 +1534,10 @@ const AutoBindCard = {
     
     const email = selectedOption.getAttribute('data-email');
     const password = selectedOption.getAttribute('data-password');
+    this.selectedAccount = {
+      id: parseInt(selectedOption.value, 10),
+      email,
+    };
     
     // 增加使用次数并更新显示
     await this.incrementUsage();
@@ -1541,6 +1615,7 @@ const AutoBindCard = {
         if (autoFillResult.success) {
           this.updateStatusView('自动填写完成，请在浏览器中确认并点击订阅按钮', 'success');
           this.addAutoFillLog('✓ 自动填写完成', 'success');
+          await this.updatePoolTags(['bound']);
         } else {
           this.updateStatusView('自动填写失败: ' + autoFillResult.error, 'error');
           this.addAutoFillLog('✗ ' + autoFillResult.error, 'error');
@@ -1554,6 +1629,7 @@ const AutoBindCard = {
         await window.ipcRenderer.invoke('open-external-url', linkResult.paymentLink);
         
         this.updateStatusView('浏览器已打开，请在浏览器中完成支付', 'success');
+        await this.updatePoolTags(['bound']);
         
         // 显示卡片信息弹窗
         this.showCardInfoModal(cardInfo, this.config);
@@ -1600,7 +1676,8 @@ const AutoBindCard = {
     await this.loadConfig();
     // 再加载到视图
     this.loadViewConfig();
-    this.refreshAccountList();
+    await this.refreshAccountList();
+    this._applyPendingAccountSelection();
     
     // 先移除旧监听器，防止重复注册导致内存泄漏
     if (window.ipcRenderer) {
@@ -1686,6 +1763,7 @@ if (typeof module !== 'undefined' && module.exports) {
     AutoBindCard,
     windowExports: {
       AutoBindCard,
+      startAutoBindCardForEmail: (email) => AutoBindCard.startAutoBindCardForEmail(email),
     },
   };
 }

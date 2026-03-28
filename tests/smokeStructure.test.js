@@ -4,12 +4,19 @@ const fs = require('fs');
 const path = require('path');
 
 describe('Phase 1 structure smoke tests', () => {
-  it('js/ directory is empty or does not exist', () => {
+  it('js/ directory contains only legacy compatibility shims', () => {
     const jsDir = path.join(__dirname, '..', 'js');
-    if (fs.existsSync(jsDir)) {
-      const files = fs.readdirSync(jsDir).filter(f => !f.startsWith('.'));
-      assert.strictEqual(files.length, 0, `js/ should be empty but contains: ${files.join(', ')}`);
-    }
+    assert.ok(fs.existsSync(jsDir), 'js/ compatibility directory should exist');
+
+    const files = fs.readdirSync(jsDir).filter(f => !f.startsWith('.')).sort();
+    assert.deepEqual(files, [
+      'accountLogin.js',
+      'accountQuery.js',
+      'accountSwitcher.js',
+      'codexAccountSwitcher.js',
+      'constants.js',
+      'currentAccountDetector.js',
+    ]);
   });
 
   it('ui/ directory is empty or does not exist', () => {

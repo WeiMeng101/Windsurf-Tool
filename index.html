@@ -45,11 +45,11 @@
 
       <nav class="sidebar-nav">
         <div class="sidebar-section-label">核心工作区</div>
-        <button class="nav-item" data-view="dashboard" onclick="switchView('dashboard')">
+        <button class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
           <i data-lucide="layout-dashboard" class="nav-item-icon"></i>
           <span>全局概览</span>
         </button>
-        <button class="nav-item active" data-view="register" onclick="switchView('register')">
+        <button class="nav-item" data-view="register" onclick="switchView('register')">
           <i data-lucide="users" class="nav-item-icon"></i>
           <span>账号中心</span>
         </button>
@@ -86,7 +86,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="footer-meta">默认首页聚焦账号工作流，批量注册入口已合并到账号中心，避免主导航过载。</div>
+        <div class="footer-meta">默认首页聚焦全局概览，账号中心继续承接具体账号工作流，避免主导航过载。</div>
         <div class="footer-links">
           <a href="https://github.com/crispvibe/Windsurf-Tool" class="footer-link" target="_blank">
             <i data-lucide="github" style="width:14px;height:14px;"></i> GitHub
@@ -100,9 +100,29 @@
 
     <!-- 右侧主内容区 -->
     <main class="main-content">
-      
+
+      <!-- 全局概览视图 -->
+      <div id="dashboard" class="view-content active">
+        <div class="page-header">
+          <div>
+            <div class="page-header-eyebrow">全局工作台</div>
+            <div class="page-header-title">全局概览</div>
+            <div class="page-header-desc">先看账号池健康度、网关运行状态和最近异常，再进入账号中心、渠道网关或执行页处理具体任务。</div>
+          </div>
+          <div class="page-header-meta">
+            <div class="page-meta-chip">池状态</div>
+            <div class="page-meta-chip">网关健康</div>
+            <div class="page-meta-chip">异常追踪</div>
+          </div>
+        </div>
+
+        <div id="dashboard-content">
+          <div class="dashboard-loading">正在加载全局概览…</div>
+        </div>
+      </div>
+
       <!-- 账号管理视图 (紧凑布局) -->
-      <div id="register" class="view-content active">
+      <div id="register" class="view-content">
         <div class="page-header page-header-home">
           <div>
             <div class="page-header-eyebrow">账号工作台</div>
@@ -805,19 +825,6 @@
             保存配置
           </button>
         </div>
-
-      <!-- 全局概览视图 -->
-      <div id="dashboard" class="view-content">
-        <div class="page-header">
-          <div>
-            <div class="page-header-eyebrow">系统总览</div>
-            <div class="page-header-title">全局仪表盘</div>
-            <div class="page-header-desc">一眼掌控号池状态、网关流量、异常事件，日常运维只看这一个面板。</div>
-          </div>
-        </div>
-        <div id="dashboard-content"></div>
-      </div>
-
       <!-- 号池管理视图 -->
       <div id="pool" class="view-content">
         <div class="page-header">
@@ -1324,5 +1331,10 @@
   </div>
 
   <script src="renderer.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof window.switchView === 'function') window.switchView('dashboard');
+    });
+  </script>
 </body>
 </html>

@@ -248,6 +248,7 @@ async function initializeConfigFiles() {
     } catch (error) {
       // 文件不存在，创建默认配置
       console.log(` 创建默认Windsurf配置文件: ${configFile}`);
+      await fs.mkdir(path.dirname(configFile), { recursive: true });
       
       // 默认配置
       const defaultConfig = {
@@ -376,7 +377,8 @@ app.whenReady().then(async () => {
     ACCOUNTS_FILE,
     accountsFileLock,
     accountService: new AccountService(ACCOUNTS_FILE),
-    gatewayDataService: new GatewayDataService(),
+    gatewayDataService: new GatewayDataService(getDb),
+    getDb,
     poolService: new PoolService(getDb),
     userDataPath,
     appRoot: __dirname,
