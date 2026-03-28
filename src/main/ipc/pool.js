@@ -3,6 +3,7 @@
  * Handles: Pool account CRUD, status transitions, health scores, enable/disable
  */
 const { ipcMain } = require('electron');
+const retryQueueService = require('../../services/retryQueueService');
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -217,6 +218,87 @@ function registerHandlers(mainWindow, deps) {
     }
   });
 
+  // CARD-02 fix: Properly transition account status after successful card binding
+  // This handler updates both tags AND status (not just tags like pool-update-tags)
+  ipcMain.handle('pool-after-card-bind', async (event, payload) => {
+    try {
+      const { accountId, tags } = getObjectArg(payload);
+      const account = poolService.getById(accountId);
+      if (!account) return { success: false, error: 'Account not found' };
+
+      // Merge tags (add card-bound marker)
+      const bindTags = Array.isArray(tags) ? tags : ['card-bound'];
+      const mergedTags = [...new Set([...(account.tags || []), ...bindTags])];
+
+      // Update tags first
+      poolService.update(accountId, { tags: mergedTags });
+
+      // Properly transition status to 'available' to confirm the account is active after binding
+      let transitioned = account;
+      if (account.status !== 'available' && account.status !== 'in_use') {
+        try {
+          transitioned = poolService.transitionStatus(accountId, 'available', 'card binding completed', 'card-bind');
+        } catch (transErr) {
+          // If transition fails (e.g., already available), just update status directly
+          console.warn(`[pool-after-card-bind] Status transition failed for ${accountId}: ${transErr.message}, forcing update`);
+          transitioned = poolService.update(accountId, { status: 'available' });
+        }
+      }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pool-status-changed', {
+          accountId,
+          fromStatus: account.status,
+          toStatus: 'available',
+          reason: 'card binding completed',
+          triggeredBy: 'card-bind',
+        });
+      }
+
+      return { success: true, data: transitioned };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // CARD-03: Get card binding retry queue
+  ipcMain.handle('card-binding-retry-queue', async () => {
+    try {
+      const pending = retryQueueService.getQueue('cardBinding');
+      const failed = retryQueueService.getFailedList('cardBinding');
+      const stats = retryQueueService.getStats();
+      return { success: true, data: { pending, failed, stats: stats.cardBinding || { pending: 0, failed: 0 } } };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // CARD-03: Enqueue a failed card binding to the retry queue (called from renderer)
+  ipcMain.handle('card-binding-retry-enqueue', async (event, payload) => {
+    try {
+      const account = getObjectArg(payload);
+      if (!account.email && !account.id) {
+        return { success: false, error: 'Account must have email or id' };
+      }
+      retryQueueService.enqueue('cardBinding', account, account.maxRetries || 3);
+      console.log(`[重试队列] 绑卡失败账号已加入队列: ${account.email || account.id}`);
+      return { success: true, data: { queued: true } };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // CARD-03: Remove from card binding retry queue (after manual success)
+  ipcMain.handle('card-binding-retry-remove', async (event, payload) => {
+    try {
+      const { accountId } = getObjectArg(payload);
+      const removed = retryQueueService.removeFromQueue('cardBinding', accountId);
+      return { success: true, data: { removed } };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // Sync pool accounts to gateway channels
   ipcMain.handle('pool-sync-channels', async (event) => {
     try {
@@ -242,6 +324,41 @@ function registerHandlers(mainWindow, deps) {
       const recovery = new ErrorRecoveryService();
       const result = recovery.scanAndRecover(poolService);
       return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Shared recovery service instance for periodic scanning
+  let periodicRecovery = null;
+
+  // Start periodic recovery scanning
+  ipcMain.handle('pool-start-periodic-recovery', async (event, options) => {
+    try {
+      const { poolService } = deps;
+      const opts = getObjectArg(options);
+      const intervalMs = opts.intervalMs ?? opts.interval ?? 300000;
+
+      const ErrorRecoveryService = require('../../services/errorRecoveryService');
+      if (periodicRecovery) {
+        periodicRecovery.stopPeriodicScan();
+      }
+      periodicRecovery = new ErrorRecoveryService();
+      periodicRecovery.startPeriodicScan(poolService, intervalMs);
+      return { success: true, data: { message: 'Periodic recovery started', intervalMs } };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Stop periodic recovery scanning
+  ipcMain.handle('pool-stop-periodic-recovery', async (event) => {
+    try {
+      if (periodicRecovery) {
+        periodicRecovery.stopPeriodicScan();
+        periodicRecovery = null;
+      }
+      return { success: true, data: { message: 'Periodic recovery stopped' } };
     } catch (err) {
       return { success: false, error: err.message };
     }

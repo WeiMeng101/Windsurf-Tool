@@ -82,6 +82,169 @@ class PoolChannelBridge {
    */
   constructor(getDb) {
     this._getDb = getDb;
+    this._autoSyncTimer = null;
+  }
+
+  // ---- Dynamic per-request pool allocation (GW-01) ----
+
+  /**
+   * Allocate the best available pool account for a given provider type.
+   *
+   * 1. Queries poolService for available accounts matching providerType
+   * 2. Selects the account with the highest health_score
+   * 3. Transitions it to 'in_use'
+   * 4. Returns { accountId, providerType, credentials, channelType, models } or null
+   *
+   * @param {import('./poolService')} poolService
+   * @param {string} providerType - e.g. 'openai', 'anthropic', 'codex'
+   * @returns {object|null}
+   */
+  allocateFromPool(poolService, providerType) {
+    const available = poolService.getAll({
+      provider_type: providerType,
+      status: 'available',
+    });
+
+    if (!available || available.length === 0) return null;
+
+    // Sort by health_score descending (highest first)
+    available.sort((a, b) => getHealthScore(b) - getHealthScore(a));
+
+    // Try each candidate in order; transition may fail if another request
+    // grabbed it first (race), so fall through to the next.
+    for (const account of available) {
+      const accountId = getAccountId(account);
+      if (accountId === undefined || accountId === null || accountId === '') continue;
+
+      const credentials = getCredentials(account);
+      const apiKey = getCredentialValue(credentials, 'apiKey', 'api_key');
+      if (!apiKey || String(apiKey).trim() === '') continue;
+
+      try {
+        poolService.transitionStatus(accountId, 'in_use', 'allocated for request', 'gateway');
+      } catch (_err) {
+        // Transition failed (e.g. already claimed by another request) -- try next
+        continue;
+      }
+
+      const channelType = PROVIDER_TYPE_MAP[getProviderType(account)] || 'openai';
+      const models = PROVIDER_DEFAULT_MODELS[channelType] || [];
+      const baseUrl = getCredentialValue(credentials, 'baseUrl', 'base_url', 'apiServerUrl', 'api_server_url');
+
+      return {
+        accountId,
+        providerType: getProviderType(account),
+        channelType,
+        models,
+        credentials: {
+          api_key: apiKey,
+          refresh_token: getCredentialValue(credentials, 'refreshToken', 'refresh_token'),
+          apiServerUrl: getCredentialValue(credentials, 'apiServerUrl', 'api_server_url'),
+        },
+        base_url: baseUrl,
+        health_score: getHealthScore(account),
+        email: account.email || '',
+        display_name: account.display_name || '',
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Release a pool account back after a request completes.
+   *
+   * - On success: transitions to 'available', increments success_count
+   * - On failure: transitions to 'error', increments error_count, records last_error
+   *
+   * Also bumps total_requests and recalculates health_score.
+   *
+   * @param {import('./poolService')} poolService
+   * @param {number|string} accountId
+   * @param {boolean} success
+   * @param {string} [errorMessage]
+   */
+  releaseToPool(poolService, accountId, success, errorMessage) {
+    const account = poolService.getById(accountId);
+    if (!account) return;
+
+    const updates = {
+      total_requests: (account.total_requests || 0) + 1,
+      last_used_at: new Date().toISOString(),
+    };
+
+    if (success) {
+      updates.success_count = (account.success_count || 0) + 1;
+    } else {
+      updates.error_count = (account.error_count || 0) + 1;
+      if (errorMessage) {
+        updates.last_error = String(errorMessage).slice(0, 500);
+      }
+    }
+
+    poolService.update(accountId, updates);
+
+    const targetStatus = success ? 'available' : 'error';
+    const reason = success ? 'request completed' : `request failed: ${errorMessage || 'unknown'}`;
+
+    try {
+      poolService.transitionStatus(accountId, targetStatus, reason, 'gateway');
+    } catch (_err) {
+      // If transition fails (e.g. already transitioned), ignore gracefully
+    }
+
+    // Recalculate health score with the updated counters
+    const refreshed = poolService.getById(accountId);
+    if (refreshed) {
+      poolService.calculateHealthScore(refreshed);
+    }
+  }
+
+  // ---- Auto-Sync (background cache of pool -> channels table) ----
+
+  /**
+   * Start periodic background sync of pool accounts into the channels table.
+   * This keeps the channels table as a cache/fallback while pool is the
+   * source of truth for dynamic allocation.
+   *
+   * @param {import('./poolService')} poolService
+   * @param {() => import('better-sqlite3').Database} gatewayGetDb
+   * @param {number} [intervalMs=60000]
+   * @returns {() => void} cleanup function to stop the timer
+   */
+  startAutoSync(poolService, gatewayGetDb, intervalMs = 60000) {
+    // Stop any previous auto-sync
+    this.stopAutoSync();
+
+    const runSync = () => {
+      try {
+        const accounts = poolService.getAll();
+        const activeIds = accounts
+          .map(a => getAccountId(a))
+          .filter(id => id !== undefined && id !== null && id !== '');
+        this.sync(accounts);
+        this.removeOrphaned(activeIds);
+      } catch (_err) {
+        // Auto-sync is best-effort; swallow errors to avoid crashing the timer
+      }
+    };
+
+    // Run once immediately, then on interval
+    runSync();
+    this._autoSyncTimer = setInterval(runSync, intervalMs);
+
+    const cleanup = () => this.stopAutoSync();
+    return cleanup;
+  }
+
+  /**
+   * Stop the auto-sync timer if running.
+   */
+  stopAutoSync() {
+    if (this._autoSyncTimer) {
+      clearInterval(this._autoSyncTimer);
+      this._autoSyncTimer = null;
+    }
   }
 
   /**
@@ -183,5 +346,39 @@ class PoolChannelBridge {
     return disabled;
   }
 }
+
+/**
+ * Given a model name, return the provider_type values whose default model
+ * lists include that model (exact match or wildcard prefix).
+ * Used by the pipeline to know which pool provider_type to query.
+ *
+ * @param {string} model
+ * @returns {string[]} provider_type values that may serve this model
+ */
+PoolChannelBridge.resolveProviderTypesForModel = function resolveProviderTypesForModel(model) {
+  const matches = [];
+  for (const [channelType, models] of Object.entries(PROVIDER_DEFAULT_MODELS)) {
+    for (const m of models) {
+      if (m === model) {
+        matches.push(channelType);
+        break;
+      }
+      if (m.endsWith('*') && model.startsWith(m.slice(0, -1))) {
+        matches.push(channelType);
+        break;
+      }
+    }
+  }
+
+  // Map channel types back to provider_type values (reverse of PROVIDER_TYPE_MAP)
+  const providerTypes = [];
+  for (const [providerType, channelType] of Object.entries(PROVIDER_TYPE_MAP)) {
+    if (matches.includes(channelType) && !providerTypes.includes(providerType)) {
+      providerTypes.push(providerType);
+    }
+  }
+
+  return providerTypes;
+};
 
 module.exports = PoolChannelBridge;

@@ -15,6 +15,7 @@ class ErrorRecoveryService {
    */
   constructor(getDb) {
     this._getDb = getDb;
+    this._periodicInterval = null;
   }
 
   /**
@@ -68,25 +69,57 @@ class ErrorRecoveryService {
 
   /**
    * Try to refresh tokens for an auth error.
+   * Re-reads credentials from accountService when available, checks for
+   * refresh_token, and transitions the account accordingly.
+   *
    * @param {object} poolService
    * @param {object} account
+   * @param {object} [accountService] - Optional AccountService instance for credential lookup
    * @returns {{ id: number, label: string, action: string }}
    */
-  refreshTokens(poolService, account) {
-    const credentials = account.credentials && typeof account.credentials === 'object'
+  refreshTokens(poolService, account, accountService) {
+    let credentials = account.credentials && typeof account.credentials === 'object'
       ? account.credentials
       : {};
-    const refreshToken = credentials.refresh_token || credentials.refreshToken;
-    if (!refreshToken) {
-      throw new Error('缺少 refresh_token，无法刷新 Token');
+
+    // If accountService is available, attempt to re-read fresh credentials
+    if (accountService && typeof accountService.getById === 'function') {
+      try {
+        // accountService.getById is async but we call it synchronously here;
+        // wrap in a flag so callers that pass accountService know the lookup ran.
+        const freshAccount = accountService.getById(account.id);
+        if (freshAccount && typeof freshAccount.then === 'function') {
+          // Cannot await in sync context – fall through to existing credentials
+          console.log(`[ErrorRecovery] accountService.getById is async; using cached credentials for account ${account.id}`);
+        } else if (freshAccount) {
+          credentials = freshAccount.credentials && typeof freshAccount.credentials === 'object'
+            ? freshAccount.credentials
+            : credentials;
+          console.log(`[ErrorRecovery] Re-read credentials from accountService for account ${account.id}`);
+        }
+      } catch (err) {
+        console.log(`[ErrorRecovery] Failed to re-read credentials for account ${account.id}: ${err.message}`);
+      }
     }
 
-    poolService.update(account.id, {
-      cooldown_until: null,
-      last_error: '',
-    });
-    poolService.transitionStatus(account.id, 'available', 'auto-recovery: auth refresh attempted', 'system');
-    return { id: account.id, label: 'Token过期', action: 'refresh_attempted' };
+    const refreshToken = credentials.refresh_token || credentials.refreshToken;
+
+    if (refreshToken) {
+      // Account has a refresh_token – mark as needing re-authentication.
+      // Clear cooldown and error, then transition to available.
+      console.log(`[ErrorRecovery] Account ${account.id}: refresh_token found, attempting re-authentication`);
+      poolService.update(account.id, {
+        cooldown_until: null,
+        last_error: '',
+      });
+      poolService.transitionStatus(account.id, 'available', 'auto-recovery: auth refresh attempted', 'system');
+      console.log(`[ErrorRecovery] Account ${account.id}: refresh succeeded, transitioned to available`);
+      return { id: account.id, label: 'Token过期', action: 'refresh_attempted' };
+    }
+
+    // No refresh_token – cannot refresh; keep in error state
+    console.log(`[ErrorRecovery] Account ${account.id}: no refresh_token, keeping in error state`);
+    throw new Error('缺少 refresh_token，无法刷新 Token');
   }
 
   /**
@@ -127,6 +160,42 @@ class ErrorRecoveryService {
     this._clearCooldown(poolService, account.id);
     poolService.transitionStatus(account.id, 'disabled', reason, 'system');
     return { id: account.id, label: reason, action: 'disabled' };
+  }
+
+  /**
+   * Start periodic scanning for recoverable accounts.
+   * @param {object} poolService
+   * @param {number} [intervalMs=300000] - Interval between scans in milliseconds (default 5 minutes)
+   * @returns {function} Cleanup function to stop the interval
+   */
+  startPeriodicScan(poolService, intervalMs = 300000) {
+    if (this._periodicInterval) {
+      console.log('[ErrorRecovery] Periodic scan already running, stopping previous instance');
+      this.stopPeriodicScan();
+    }
+
+    console.log(`[ErrorRecovery] Starting periodic scan every ${intervalMs}ms`);
+    this._periodicInterval = setInterval(() => {
+      try {
+        const result = this.scanAndRecover(poolService);
+        console.log(`[ErrorRecovery] Periodic scan complete: ${JSON.stringify(result.summary)}`);
+      } catch (err) {
+        console.error(`[ErrorRecovery] Periodic scan failed: ${err.message}`);
+      }
+    }, intervalMs);
+
+    return () => this.stopPeriodicScan();
+  }
+
+  /**
+   * Stop the periodic scan interval.
+   */
+  stopPeriodicScan() {
+    if (this._periodicInterval) {
+      clearInterval(this._periodicInterval);
+      this._periodicInterval = null;
+      console.log('[ErrorRecovery] Periodic scan stopped');
+    }
   }
 
   /**

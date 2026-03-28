@@ -5,6 +5,7 @@
 const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const retryQueueService = require('../../services/retryQueueService');
 
 // Module-local state
 let currentCodexRegistrar = null;
@@ -32,7 +33,7 @@ function getCodexPool(appRoot, userDataPath) {
 }
 
 function registerHandlers(mainWindow, deps) {
-  const { appRoot, userDataPath, state } = deps;
+  const { appRoot, userDataPath, state, poolService } = deps;
 
   // Codex 批量注册
   ipcMain.handle('codex-batch-register', async (event, config) => {
@@ -55,7 +56,9 @@ function registerHandlers(mainWindow, deps) {
 
       const progressCallback = (progress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
+          // Send both the legacy event name (for codexManager) and the dashboard event
           mainWindow.webContents.send('codex-register-progress', progress);
+          mainWindow.webContents.send('codex-registration-progress', progress);
         }
       };
 
@@ -72,7 +75,7 @@ function registerHandlers(mainWindow, deps) {
 
       const result = await registrar.runBatch(config.count || 1, outputDir);
 
-      // 自动导入到账号池
+      // 自动导入到 Codex 账号池（legacy JSON pool）
       if (result.results && result.results.length > 0) {
         try {
           const pool = getCodexPool(appRoot, userDataPath);
@@ -81,6 +84,50 @@ function registerHandlers(mainWindow, deps) {
           logCallback(`已自动导入 ${imported} 个账号到 Codex 账号池`);
         } catch (importErr) {
           logCallback(`导入到账号池失败: ${importErr.message}`);
+        }
+
+        // REG-02: Also add successful accounts to unified pool with provider_type 'codex'
+        if (poolService) {
+          let poolAdded = 0;
+          for (const r of result.results) {
+            if (!r.success || !r.email) continue;
+            try {
+              const existing = poolService.getAll({ provider_type: 'codex' })
+                .find(a => a.email && a.email.toLowerCase() === r.email.toLowerCase());
+              if (!existing) {
+                poolService.add({
+                  provider_type: 'codex',
+                  email: r.email,
+                  display_name: r.email,
+                  status: 'available',
+                  credentials: {
+                    accessToken: r.access_token || '',
+                    refreshToken: r.refresh_token || '',
+                  },
+                  source: 'registration',
+                  source_ref: r.id || '',
+                });
+                poolAdded++;
+              }
+            } catch (poolErr) {
+              console.error(`[Codex] 号池添加失败 (${r.email}):`, poolErr);
+            }
+          }
+          if (poolAdded > 0) {
+            logCallback(`已自动添加 ${poolAdded} 个账号到统一号池 (codex)`);
+          }
+        }
+
+        // REG-06: Enqueue failed (non-cancelled) accounts into the retry queue
+        for (const r of result.results) {
+          if (!r.success && !r.cancelled) {
+            retryQueueService.enqueue('codex-registration', {
+              email: r.email || `codex-batch-${Date.now()}`,
+              error: r.error || 'Unknown error',
+              config: { ...config, count: 1 },
+            }, 3);
+            console.log(`[重试队列] Codex 注册失败账号已加入队列: ${r.email || 'unknown'}`);
+          }
         }
       }
 

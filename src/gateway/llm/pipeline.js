@@ -8,11 +8,37 @@ const { setupSSEHeaders, writeSSE, endSSE, UsageAccumulator } = require('./strea
 require('./transformer/registry');
 const { registry } = require('./transformer/interfaces');
 
+let traceService = null;
+try {
+  traceService = require('../biz/trace').traceService;
+} catch (_e) {
+  // trace module optional
+}
+
 class Pipeline {
   constructor() {
     this.maxChannelRetries = 3;
     this.maxSameChannelRetries = 1;
     this.retryDelay = 500;
+
+    /** @type {import('../../services/poolService')|null} */
+    this._poolService = null;
+    /** @type {import('../../services/poolChannelBridge')|null} */
+    this._poolBridge = null;
+  }
+
+  /**
+   * Attach pool service + bridge for dynamic per-request allocation.
+   * When set, execute() will attempt pool-based routing before falling
+   * back to the static channels table.
+   *
+   * @param {import('../../services/poolService')} poolService
+   * @param {import('../../services/poolChannelBridge')} poolBridge
+   */
+  setPoolService(poolService, poolBridge) {
+    this._poolService = poolService;
+    this._poolBridge = poolBridge;
+    logger.info('Pipeline: pool-based routing enabled');
   }
 
   async execute(req, res, format) {
@@ -26,6 +52,22 @@ class Pipeline {
     }
 
     const inboundRequest = inbound.buildRequest(req.body);
+
+    // --- Pool-based dynamic allocation (GW-01 + GW-02 failover) ---
+    // Try to allocate from the pool first; if all pool accounts fail,
+    // fall through to static channel-based routing.
+    const poolResult = this._tryPoolAllocation(model);
+    if (poolResult) {
+      const handled = await this._executeWithPoolAccount(
+        poolResult, inboundRequest, model, isStream, format, req, res, db,
+      );
+      // If pool handled the request (success or already sent error), stop.
+      if (handled) return;
+      // Otherwise fall through to channel-based routing below.
+      logger.info('[Pool Route] falling through to channel-based routing', { model });
+    }
+
+    // --- Fallback: static channel table routing ---
     const channels = this.findChannelsForModel(db, model);
 
     if (channels.length === 0) {
@@ -77,6 +119,243 @@ class Pipeline {
     }
   }
 
+  // ---- Pool allocation helpers (GW-01) ----
+
+  /**
+   * Attempt to allocate a pool account whose provider supports the requested
+   * model. Returns the allocation result or null if pool is unavailable or
+   * has no matching account.
+   * @param {string} model
+   * @returns {object|null} pool allocation result from bridge
+   */
+  _tryPoolAllocation(model) {
+    if (!this._poolService || !this._poolBridge) return null;
+
+    try {
+      // Determine which provider type(s) serve this model by scanning the
+      // PROVIDER_DEFAULT_MODELS map exposed on the bridge module.
+      const PoolChannelBridge = require('../../services/poolChannelBridge');
+      const providerTypes = PoolChannelBridge.resolveProviderTypesForModel
+        ? PoolChannelBridge.resolveProviderTypesForModel(model)
+        : this._guessProviderTypes(model);
+
+      for (const providerType of providerTypes) {
+        const allocation = this._poolBridge.allocateFromPool(this._poolService, providerType);
+        if (allocation) {
+          logger.info(`Pool allocation: account ${allocation.accountId} (${providerType}) for model ${model}`);
+          return allocation;
+        }
+      }
+    } catch (err) {
+      logger.warn('Pool allocation failed, falling back to channels', { error: err.message });
+    }
+
+    return null;
+  }
+
+  /**
+   * Guess which provider types might serve a model based on known model
+   * prefixes. This is a best-effort heuristic used when the bridge does not
+   * expose resolveProviderTypesForModel.
+   * @param {string} model
+   * @returns {string[]}
+   */
+  _guessProviderTypes(model) {
+    const m = model.toLowerCase();
+    const types = [];
+    if (m.includes('claude')) types.push('anthropic', 'claudecode');
+    if (m.includes('gpt') || m.startsWith('o1') || m.startsWith('o3')) types.push('openai');
+    if (m.includes('gemini')) types.push('gemini');
+    if (m.includes('deepseek')) types.push('deepseek');
+    if (m.includes('moonshot')) types.push('moonshot');
+    if (m.includes('doubao')) types.push('doubao');
+    if (m.includes('glm')) types.push('zhipu');
+    if (m.includes('grok')) types.push('xai');
+    if (m.includes('codegeist')) types.push('codex');
+    if (m.includes('qwen')) types.push('siliconflow');
+    // Always try codex/openai as catch-all last
+    if (types.length === 0) types.push('openai', 'codex');
+    return [...new Set(types)];
+  }
+
+  /**
+   * Execute a request using a dynamically allocated pool account.
+   * Supports up to maxPoolRetries attempts with different pool accounts (GW-02).
+   * Each failed account is released back with error status before retrying.
+   * If all pool accounts fail, returns false so the caller can fall through
+   * to channel-based routing.
+   *
+   * @returns {boolean} true if the request was handled (success or error sent),
+   *   false if all pool retries exhausted and caller should try channels.
+   */
+  async _executeWithPoolAccount(allocation, inboundRequest, model, isStream, format, req, res, db) {
+    const maxPoolRetries = 3;
+    const requestRecord = this.createRequestRecord(db, req, model, format, isStream);
+
+    // Link to trace if tracing middleware set a traceId on the request
+    this._attachTrace(db, req, requestRecord);
+
+    let currentAllocation = allocation;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < maxPoolRetries; attempt++) {
+      if (!currentAllocation) break;
+
+      const accountId = currentAllocation.accountId;
+      const providerType = currentAllocation.providerType;
+      const syntheticChannel = this._buildSyntheticChannel(currentAllocation);
+
+      const attemptStart = Date.now();
+      let success = false;
+      let errorMessage = null;
+
+      try {
+        const outbound = registry.getOutbound(syntheticChannel);
+        const actualModel = this.resolveModel(syntheticChannel, model);
+        const providerRequest = outbound.transformRequest(inboundRequest, actualModel);
+        const requestUrl = outbound.getRequestUrl(actualModel);
+        const headers = outbound.getHeaders();
+
+        if (isStream) {
+          await this.executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart);
+        } else {
+          const inbound = registry.getInbound(format);
+          await this.executeNonStream(req, res, outbound, inbound, providerRequest, requestUrl, headers, requestRecord, syntheticChannel, db, attemptStart);
+        }
+
+        const latencyMs = Date.now() - attemptStart;
+        this.updateRequestStatus(db, requestRecord.id, 'completed', null, latencyMs);
+        success = true;
+
+        logger.info('[Pool Route] success', {
+          accountId, provider: providerType, model, attempt: attempt + 1,
+          latencyMs, stream: isStream,
+        });
+
+        return true;
+      } catch (err) {
+        errorMessage = err.message;
+        lastError = err;
+        const latencyMs = Date.now() - attemptStart;
+
+        logger.warn('[Pool Route] attempt failed', {
+          accountId, provider: providerType, model, attempt: attempt + 1,
+          latencyMs, status: err.response?.status, error: err.message,
+        });
+
+        this._safeRecordExecution(db, requestRecord.id, null, attempt + 1, 'failed', err.response?.status, err.message);
+      } finally {
+        // Always release current account back to pool
+        this._releasePoolAccount(currentAllocation.accountId, success, errorMessage);
+      }
+
+      // If headers already sent (partial stream), we cannot retry or fall through
+      if (res.headersSent) {
+        this.updateRequestStatus(db, requestRecord.id, 'failed', null, null);
+        return true;
+      }
+
+      // Try to allocate a NEW account for the next attempt
+      if (attempt < maxPoolRetries - 1) {
+        currentAllocation = this._tryPoolAllocation(model);
+        if (currentAllocation) {
+          logger.info('[Pool Route] retrying with new account', {
+            newAccountId: currentAllocation.accountId,
+            provider: currentAllocation.providerType,
+            attempt: attempt + 2,
+          });
+          // Small backoff before retry
+          if (this.retryDelay > 0) {
+            await new Promise(r => setTimeout(r, this.retryDelay));
+          }
+        }
+      }
+    }
+
+    // All pool retries exhausted -- signal caller to try channel-based routing
+    logger.warn('[Pool Route] all pool retries exhausted, falling through to channels', {
+      model, attempts: maxPoolRetries, lastError: lastError?.message,
+    });
+    return false;
+  }
+
+  /**
+   * Build a synthetic channel object from a pool allocation for use with
+   * outbound transformers.
+   */
+  _buildSyntheticChannel(allocation) {
+    return {
+      id: null,
+      type: allocation.channelType,
+      name: `__pool__${allocation.accountId}`,
+      base_url: allocation.base_url || '',
+      credentials: allocation.credentials,
+      supported_models: allocation.models,
+      manual_models: [],
+      tags: ['pool', 'dynamic'],
+      policies: {},
+      settings: {},
+      ordering_weight: Math.round(allocation.health_score / 10),
+    };
+  }
+
+  /**
+   * Safely release a pool account. Errors during release are logged but
+   * never propagated.
+   */
+  _releasePoolAccount(accountId, success, errorMessage) {
+    try {
+      this._poolBridge.releaseToPool(
+        this._poolService, accountId, success, errorMessage,
+      );
+    } catch (releaseErr) {
+      logger.warn('Failed to release pool account', { accountId, error: releaseErr.message });
+    }
+  }
+
+  /**
+   * Attach trace/thread from the tracing middleware to the request record.
+   * If the middleware set req.traceId / req.threadId, create or link
+   * the corresponding trace/thread rows.
+   */
+  _attachTrace(db, req, requestRecord) {
+    if (!traceService) return;
+    try {
+      const projectId = req.projectId || 1;
+      const externalTraceId = req.traceId || null;
+      const externalThreadId = req.threadId || null;
+
+      if (!externalTraceId) return;
+
+      const trace = traceService.findOrCreateTrace(projectId, externalTraceId, `pool-request-${requestRecord.model}`);
+      if (trace && trace.id) {
+        db.prepare('UPDATE requests SET trace_id = ? WHERE id = ?').run(trace.id, requestRecord.id);
+
+        if (externalThreadId) {
+          const thread = traceService.findOrCreateThread(projectId, externalThreadId, '');
+          if (thread && thread.id) {
+            traceService.linkTraceToThread(trace.id, thread.id);
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to attach trace to pool request', { error: err.message });
+    }
+  }
+
+  /**
+   * Record an execution attempt, tolerating null channelId for pool-based
+   * requests (the request_executions.channel_id column is NOT NULL in the
+   * original schema, so we use 0 as a sentinel for pool routes).
+   */
+  _safeRecordExecution(db, requestId, channelId, attempt, status, responseStatusCode, errorMessage) {
+    try {
+      this.recordExecution(db, requestId, channelId ?? 0, attempt, status, responseStatusCode, errorMessage);
+    } catch (err) {
+      logger.warn('Failed to record pool execution', { requestId, error: err.message });
+    }
+  }
+
   async executeStream(req, res, outbound, providerRequest, requestUrl, headers, requestRecord, channel, db, startTime) {
     const response = await axios({
       method: 'POST',
@@ -99,7 +378,9 @@ class Pipeline {
     }
 
     setupSSEHeaders(res);
-    this.recordExecution(db, requestRecord.id, channel.id, 1, 'success', response.status);
+    if (channel.id != null) {
+      this.recordExecution(db, requestRecord.id, channel.id, 1, 'success', response.status);
+    }
 
     const usageAccumulator = new UsageAccumulator();
     let firstChunk = true;
@@ -175,7 +456,9 @@ class Pipeline {
       throw err;
     }
 
-    this.recordExecution(db, requestRecord.id, channel.id, 1, 'success', response.status);
+    if (channel.id != null) {
+      this.recordExecution(db, requestRecord.id, channel.id, 1, 'success', response.status);
+    }
 
     const transformed = outbound.transformResponse(response.data);
     const usage = outbound.extractUsage(response.data);

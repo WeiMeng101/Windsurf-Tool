@@ -28,6 +28,9 @@ class PoolManager {
   constructor() {
     this.currentFilter = 'all';
     this.poolAccounts = [];
+    /** @type {Set<number>} Selected account IDs for batch operations */
+    this.selectedAccounts = new Set();
+    this.batchBindInProgress = false;
   }
 
   init() {
@@ -109,9 +112,11 @@ class PoolManager {
     const buttons = FILTERS.map(f =>
       `<button class="pool-filter-btn${f.key === this.currentFilter ? ' active' : ''}" data-filter="${f.key}">${f.label}</button>`
     ).join('');
+    const batchBindBtn = '<button class="pool-action-btn btn-add" id="poolBatchBindBtn"><i data-lucide="credit-card" style="width:14px;height:14px;margin-right:4px;"></i>批量绑卡</button>';
+    const selectAllBtn = '<button class="pool-action-btn btn-add" id="poolSelectAllBtn" style="font-size:12px;"><i data-lucide="check-square" style="width:14px;height:14px;margin-right:4px;"></i>全选可用</button>';
     const addBtn = '<button class="pool-action-btn btn-add" id="poolAddApiKeyBtn"><i data-lucide="plus" style="width:14px;height:14px;margin-right:4px;"></i>添加 API Key</button>';
     const syncBtn = '<button class="pool-action-btn btn-add" id="poolSyncBtn"><i data-lucide="refresh-cw" style="width:14px;height:14px;margin-right:4px;"></i>同步到网关</button>';
-    el.innerHTML = buttons + '<div style="flex:1"></div>' + addBtn + syncBtn;
+    el.innerHTML = buttons + '<div style="flex:1"></div>' + selectAllBtn + batchBindBtn + addBtn + syncBtn;
     el.querySelectorAll('.pool-filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         this.currentFilter = btn.dataset.filter;
@@ -139,6 +144,28 @@ class PoolManager {
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }
     });
+
+    // Select all available windsurf accounts
+    const selectAllEl = document.getElementById('poolSelectAllBtn');
+    if (selectAllEl) selectAllEl.addEventListener('click', () => {
+      const availableWindsurf = this.poolAccounts.filter(
+        a => a.provider_type === 'windsurf' && a.status === 'available'
+      );
+      if (this.selectedAccounts.size === availableWindsurf.length && availableWindsurf.length > 0) {
+        // Toggle off: deselect all
+        this.selectedAccounts.clear();
+      } else {
+        // Select all available windsurf accounts
+        this.selectedAccounts.clear();
+        availableWindsurf.forEach(a => this.selectedAccounts.add(a.id));
+      }
+      this._renderAccountGrid(this.poolAccounts);
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+
+    // Batch card binding
+    const batchBindEl = document.getElementById('poolBatchBindBtn');
+    if (batchBindEl) batchBindEl.addEventListener('click', () => this._startBatchBind());
   }
 
   _renderAccountGrid(accounts) {
@@ -181,12 +208,21 @@ class PoolManager {
     const bindBtn = (account.provider_type === 'windsurf' && (account.status === 'available' || account.status === 'error'))
       ? `<button class="pool-action-btn btn-bind" data-action="bind" data-id="${account.id}" data-email="${this._esc(account.email || '')}">绑卡</button>`
       : '';
+    // Checkbox for batch selection (windsurf accounts only)
+    const isWindsurf = account.provider_type === 'windsurf';
+    const isChecked = this.selectedAccounts.has(account.id);
+    const checkbox = isWindsurf
+      ? `<input type="checkbox" class="pool-card-checkbox" data-select-id="${account.id}" ${isChecked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;margin-right:8px;flex-shrink:0;">`
+      : '';
     return `
-      <div class="pool-card">
+      <div class="pool-card${isChecked ? ' pool-card-selected' : ''}">
         <div class="pool-card-header">
-          <div>
-            <div class="pool-card-name">${this._esc(name)}</div>
-            ${email ? `<div class="pool-card-email">${this._esc(email)}</div>` : ''}
+          <div style="display:flex;align-items:center;">
+            ${checkbox}
+            <div>
+              <div class="pool-card-name">${this._esc(name)}</div>
+              ${email ? `<div class="pool-card-email">${this._esc(email)}</div>` : ''}
+            </div>
           </div>
           <span class="badge ${sc.cls}">${sc.text}</span>${sourceBadge}
         </div>
@@ -206,6 +242,21 @@ class PoolManager {
   }
 
   _bindCardActions(container) {
+    // Bind checkbox selection for batch operations
+    container.querySelectorAll('.pool-card-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = parseInt(cb.dataset.selectId, 10);
+        if (cb.checked) {
+          this.selectedAccounts.add(id);
+        } else {
+          this.selectedAccounts.delete(id);
+        }
+        // Toggle selected style on the card
+        const card = cb.closest('.pool-card');
+        if (card) card.classList.toggle('pool-card-selected', cb.checked);
+      });
+    });
+
       container.querySelectorAll('.pool-action-btn[data-action]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const action = btn.dataset.action;
@@ -258,6 +309,91 @@ class PoolManager {
     } else if (window.showCustomAlert) {
       window.showCustomAlert(r.error || '添加失败', 'error');
     }
+  }
+
+  // ---- Batch Card Binding (CARD-01) ----
+
+  async _startBatchBind() {
+    if (this.batchBindInProgress) {
+      if (window.showCustomAlert) window.showCustomAlert('批量绑卡正在进行中，请等待完成', 'warning');
+      return;
+    }
+
+    // Collect selected accounts that are windsurf + available
+    const selected = this.poolAccounts.filter(
+      a => this.selectedAccounts.has(a.id) && a.provider_type === 'windsurf' && a.status === 'available'
+    );
+
+    if (selected.length === 0) {
+      if (window.showCustomAlert) window.showCustomAlert('请先勾选状态为"可用"的 Windsurf 账号', 'warning');
+      return;
+    }
+
+    if (!confirm(`确认为 ${selected.length} 个账号批量绑卡？将依次处理每个账号。`)) return;
+
+    this.batchBindInProgress = true;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const account of selected) {
+      try {
+        if (window.showCustomAlert) {
+          window.showCustomAlert(`正在绑卡: ${account.email} (${successCount + failCount + 1}/${selected.length})`, 'info');
+        }
+
+        // Trigger the card binding flow for this email
+        let bindResult = { success: false };
+        if (typeof window.startAutoBindCardForEmail === 'function') {
+          bindResult = await window.startAutoBindCardForEmail(account.email);
+        } else if (window.AutoBindCard && typeof window.AutoBindCard.startAutoBindCardForEmail === 'function') {
+          bindResult = await window.AutoBindCard.startAutoBindCardForEmail(account.email);
+        } else {
+          // Fallback: invoke the IPC directly if available
+          bindResult = await window.ipcRenderer.invoke('auto-bind-card', { email: account.email });
+        }
+
+        if (bindResult && bindResult.success !== false) {
+          // CARD-02: Properly transition pool status after binding
+          await window.ipcRenderer.invoke('pool-after-card-bind', {
+            accountId: account.id,
+            tags: ['card-bound'],
+          });
+          successCount++;
+        } else {
+          failCount++;
+          // CARD-03: Enqueue failed binding to retry queue
+          await window.ipcRenderer.invoke('card-binding-retry-enqueue', {
+            id: account.id,
+            email: account.email,
+            error: (bindResult && bindResult.error) || 'Bind failed',
+          });
+        }
+      } catch (err) {
+        console.error(`[批量绑卡] ${account.email} 失败:`, err);
+        failCount++;
+        // CARD-03: Enqueue failed binding to retry queue
+        try {
+          await window.ipcRenderer.invoke('card-binding-retry-enqueue', {
+            id: account.id,
+            email: account.email,
+            error: err.message || String(err),
+          });
+        } catch (enqueueErr) {
+          console.error('[重试队列入队失败]', enqueueErr);
+        }
+      }
+    }
+
+    this.batchBindInProgress = false;
+    this.selectedAccounts.clear();
+
+    const msg = `批量绑卡完成: 成功 ${successCount}, 失败 ${failCount}`;
+    if (window.showCustomAlert) {
+      window.showCustomAlert(msg, failCount > 0 ? 'warning' : 'success');
+    }
+
+    // Refresh the pool view
+    this.render();
   }
 
   // ---- Modal ----
