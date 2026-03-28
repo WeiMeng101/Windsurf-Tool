@@ -5,14 +5,18 @@ const { getDb } = require('../db');
 const { cacheManager } = require('../cache');
 const logger = require('../logger');
 const { setupSSEHeaders, writeSSE, endSSE, UsageAccumulator } = require('./streams');
-require('./transformer/registry');
+const { modelRegistry } = require('./transformer/registry');
 const { registry } = require('./transformer/interfaces');
 const { isTokenExpired } = require('../../services/tokenUtils');
 const { CODEX_BASE_URL } = require('./transformer/codex/index');
 const tokenRefreshService = require('../../services/tokenRefreshService');
-const { quotaService } = require('../biz/quota');
+const { quotaService, QuotaService } = require('../biz/quota');
 const { computeUsageCost } = require('../biz/costCalc');
 const { loadBalancer, circuitBreaker } = require('../biz/loadBalancer');
+
+// Wire the model registry into the quota service so auto-switch can walk
+// fallback chains without creating a circular dependency at require time.
+QuotaService.setModelRegistry(modelRegistry);
 
 let traceService = null;
 try {
@@ -57,11 +61,28 @@ class Pipeline {
   async execute(req, res, format) {
     const db = getDb();
     const inbound = registry.getInbound(format);
-    const model = inbound.getModel(req.body);
+    const rawModel = inbound.getModel(req.body);
     const isStream = inbound.isStream(req.body);
 
-    if (!model) {
+    if (!rawModel) {
       return res.status(400).json({ error: { message: 'model is required', type: 'invalid_request' } });
+    }
+
+    // --- Model resolution: aliases + exclusion check ---
+    let model;
+    try {
+      model = modelRegistry.resolveModel(rawModel);
+    } catch (err) {
+      if (err.code === 'MODEL_EXCLUDED') {
+        return res.status(403).json({
+          error: { message: err.message, type: 'model_excluded', code: 'model_excluded' }
+        });
+      }
+      throw err;
+    }
+
+    if (model !== rawModel) {
+      logger.info('[Model Resolution] alias resolved', { from: rawModel, to: model });
     }
 
     // --- Quota enforcement ---
@@ -97,7 +118,23 @@ class Pipeline {
     }
 
     // --- Fallback: static channel table routing ---
-    const channels = this.findChannelsForModel(db, model);
+    let channels = this.findChannelsForModel(db, model);
+
+    if (channels.length === 0) {
+      // Before giving up, try fallback models from the registry
+      const fallbacks = modelRegistry.getFallbackChain(model);
+      for (const fbModel of fallbacks) {
+        const fbChannels = this.findChannelsForModel(db, fbModel);
+        if (fbChannels.length > 0) {
+          logger.info('[Model Fallback] no channel for original model, using fallback', {
+            from: model, to: fbModel,
+          });
+          channels = fbChannels;
+          model = fbModel;
+          break;
+        }
+      }
+    }
 
     if (channels.length === 0) {
       return res.status(404).json({
@@ -889,4 +926,4 @@ class Pipeline {
   }
 }
 
-module.exports = { Pipeline };
+module.exports = { Pipeline, modelRegistry };
