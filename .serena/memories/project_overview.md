@@ -1,0 +1,5 @@
+# Windsurf-Tool Overview
+- Purpose: Electron desktop tool for Windsurf account management, including account import/query/switching, registration flows, Codex/OpenAI account pool rotation, and a local gateway service.
+- Stack: Electron 26, CommonJS JavaScript/TypeScript mix, electron-vite, Node built-in test runner, Express gateway, better-sqlite3/sql.js, axios, puppeteer.
+- Structure: `main.js` boots Electron and registers IPC handlers from `src/main/ipc/*`; renderer modules live in `src/renderer/*`; shared services in `src/services/*`; gateway backend in `src/gateway/*`; tests in `tests/*`; root `js/*` now serves as legacy compatibility shims for pre-refactor require paths.
+- Platform notes: macOS and Windows focused, with path helpers in `src/services/windsurfPaths.js` and account switching logic in `src/renderer/switcherRenderer.js`.
