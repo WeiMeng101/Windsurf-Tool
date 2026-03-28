@@ -7,6 +7,9 @@ const logger = require('../logger');
 const { setupSSEHeaders, writeSSE, endSSE, UsageAccumulator } = require('./streams');
 require('./transformer/registry');
 const { registry } = require('./transformer/interfaces');
+const { isTokenExpired } = require('../../services/tokenUtils');
+const { CODEX_BASE_URL } = require('./transformer/codex/index');
+const tokenRefreshService = require('../../services/tokenRefreshService');
 
 let traceService = null;
 try {
@@ -165,13 +168,14 @@ class Pipeline {
     const types = [];
     if (m.includes('claude')) types.push('anthropic', 'claudecode');
     if (m.includes('gpt') || m.startsWith('o1') || m.startsWith('o3')) types.push('openai');
+    // gpt-5 family with codex suffix routes to Codex provider
+    if (m.includes('codex') || m.includes('codegeist')) types.push('codex');
     if (m.includes('gemini')) types.push('gemini');
     if (m.includes('deepseek')) types.push('deepseek');
     if (m.includes('moonshot')) types.push('moonshot');
     if (m.includes('doubao')) types.push('doubao');
     if (m.includes('glm')) types.push('zhipu');
     if (m.includes('grok')) types.push('xai');
-    if (m.includes('codegeist')) types.push('codex');
     if (m.includes('qwen')) types.push('siliconflow');
     // Always try codex/openai as catch-all last
     if (types.length === 0) types.push('openai', 'codex');
@@ -200,6 +204,12 @@ class Pipeline {
 
     for (let attempt = 0; attempt < maxPoolRetries; attempt++) {
       if (!currentAllocation) break;
+
+      // For Codex accounts, check token expiry and attempt refresh before use
+      if (currentAllocation.channelType === 'codex') {
+        currentAllocation = await this._ensureCodexTokenFresh(currentAllocation);
+        if (!currentAllocation) break; // refresh failed and no account left
+      }
 
       const accountId = currentAllocation.accountId;
       const providerType = currentAllocation.providerType;
@@ -282,14 +292,31 @@ class Pipeline {
   /**
    * Build a synthetic channel object from a pool allocation for use with
    * outbound transformers.
+   *
+   * For Codex accounts the credentials carry JWT access_token / refresh_token
+   * rather than a simple api_key, and the base_url must point to the Codex
+   * backend (chatgpt.com/backend-api/codex#) so the CodexOutbound transformer
+   * derives the correct request URL.
    */
   _buildSyntheticChannel(allocation) {
+    const isCodex = allocation.channelType === 'codex';
+    const credentials = { ...allocation.credentials };
+
+    if (isCodex) {
+      // Codex accounts use access_token as the bearer token.
+      // Ensure it is also set as api_key so getHeaders() in the transformer
+      // can find it via the standard credential fields.
+      if (credentials.access_token && !credentials.api_key) {
+        credentials.api_key = credentials.access_token;
+      }
+    }
+
     return {
       id: null,
       type: allocation.channelType,
       name: `__pool__${allocation.accountId}`,
-      base_url: allocation.base_url || '',
-      credentials: allocation.credentials,
+      base_url: isCodex ? (allocation.base_url || CODEX_BASE_URL) : (allocation.base_url || ''),
+      credentials,
       supported_models: allocation.models,
       manual_models: [],
       tags: ['pool', 'dynamic'],
@@ -297,6 +324,78 @@ class Pipeline {
       settings: {},
       ordering_weight: Math.round(allocation.health_score / 10),
     };
+  }
+
+  /**
+   * Ensure a Codex allocation's access_token is still valid.
+   * If the JWT is expired (or about to expire), attempt a refresh using the
+   * refresh_token via tokenRefreshService.  On success the allocation's
+   * credentials are updated in-place and the pool account is also patched.
+   * On failure the account is released with an auth error and null is
+   * returned so the caller can skip to the next allocation.
+   *
+   * @param {object} allocation - Pool allocation with credentials
+   * @returns {object|null} The (possibly updated) allocation, or null on failure
+   */
+  async _ensureCodexTokenFresh(allocation) {
+    const creds = allocation.credentials || {};
+    const accessToken = creds.access_token || creds.api_key;
+
+    // If the token is still valid, nothing to do
+    if (accessToken && !isTokenExpired(accessToken)) {
+      return allocation;
+    }
+
+    const refreshToken = creds.refresh_token;
+    if (!refreshToken) {
+      logger.warn('[Codex Token] No refresh_token available, cannot refresh', {
+        accountId: allocation.accountId,
+      });
+      this._releasePoolAccount(allocation.accountId, false, 'Codex token expired, no refresh_token');
+      return null;
+    }
+
+    logger.info('[Codex Token] access_token expired, attempting refresh', {
+      accountId: allocation.accountId,
+    });
+
+    try {
+      const tokens = await tokenRefreshService.refreshCodexToken(refreshToken);
+      // Update the allocation credentials with fresh tokens
+      allocation.credentials = {
+        ...creds,
+        access_token: tokens.access_token,
+        api_key: tokens.access_token,
+      };
+      if (tokens.refresh_token) {
+        allocation.credentials.refresh_token = tokens.refresh_token;
+      }
+
+      // Persist the refreshed credentials back to the pool so future
+      // allocations already have a valid token.
+      if (this._poolService) {
+        try {
+          this._poolService.update(allocation.accountId, {
+            credentials: allocation.credentials,
+          });
+        } catch (updateErr) {
+          logger.warn('[Codex Token] Failed to persist refreshed credentials', {
+            accountId: allocation.accountId, error: updateErr.message,
+          });
+        }
+      }
+
+      logger.info('[Codex Token] Token refreshed successfully', {
+        accountId: allocation.accountId,
+      });
+      return allocation;
+    } catch (err) {
+      logger.error('[Codex Token] Token refresh failed', {
+        accountId: allocation.accountId, error: err.message,
+      });
+      this._releasePoolAccount(allocation.accountId, false, `Codex token refresh failed: ${err.message}`);
+      return null;
+    }
   }
 
   /**

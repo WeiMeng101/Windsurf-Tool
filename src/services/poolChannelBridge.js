@@ -1,5 +1,7 @@
 'use strict';
 
+const { isTokenExpired } = require('./tokenUtils');
+
 const POOL_TAG = '__pool__';
 
 /**
@@ -117,8 +119,27 @@ class PoolChannelBridge {
       if (accountId === undefined || accountId === null || accountId === '') continue;
 
       const credentials = getCredentials(account);
+      const pType = getProviderType(account);
+      const channelType = PROVIDER_TYPE_MAP[pType] || 'openai';
+      const isCodex = channelType === 'codex';
+
+      // For Codex accounts the bearer credential is access_token (JWT), not api_key.
+      // For all others we require a non-empty api_key.
+      const accessToken = getCredentialValue(credentials, 'access_token', 'accessToken');
       const apiKey = getCredentialValue(credentials, 'apiKey', 'api_key');
-      if (!apiKey || String(apiKey).trim() === '') continue;
+      const effectiveKey = isCodex ? (accessToken || apiKey) : apiKey;
+      if (!effectiveKey || String(effectiveKey).trim() === '') continue;
+
+      // Skip Codex accounts whose access_token JWT is expired.
+      // The pipeline may still attempt a refresh, but allocating a known-expired
+      // token wastes a round-trip.  Only skip when the refresh_token is also
+      // missing -- otherwise the pipeline can refresh on-the-fly.
+      if (isCodex && accessToken) {
+        const refreshToken = getCredentialValue(credentials, 'refreshToken', 'refresh_token');
+        if (isTokenExpired(accessToken) && !refreshToken) {
+          continue;
+        }
+      }
 
       try {
         poolService.transitionStatus(accountId, 'in_use', 'allocated for request', 'gateway');
@@ -127,20 +148,32 @@ class PoolChannelBridge {
         continue;
       }
 
-      const channelType = PROVIDER_TYPE_MAP[getProviderType(account)] || 'openai';
       const models = PROVIDER_DEFAULT_MODELS[channelType] || [];
       const baseUrl = getCredentialValue(credentials, 'baseUrl', 'base_url', 'apiServerUrl', 'api_server_url');
 
+      // Build credentials payload.  Codex accounts pass through the full JWT
+      // credential set (access_token, refresh_token, id_token) so the pipeline
+      // can use / refresh them.
+      const credentialsPayload = isCodex
+        ? {
+            api_key: accessToken || apiKey,
+            access_token: accessToken,
+            refresh_token: getCredentialValue(credentials, 'refreshToken', 'refresh_token'),
+            id_token: getCredentialValue(credentials, 'id_token', 'idToken'),
+            account_id: getCredentialValue(credentials, 'account_id', 'accountId'),
+          }
+        : {
+            api_key: apiKey,
+            refresh_token: getCredentialValue(credentials, 'refreshToken', 'refresh_token'),
+            apiServerUrl: getCredentialValue(credentials, 'apiServerUrl', 'api_server_url'),
+          };
+
       return {
         accountId,
-        providerType: getProviderType(account),
+        providerType: pType,
         channelType,
         models,
-        credentials: {
-          api_key: apiKey,
-          refresh_token: getCredentialValue(credentials, 'refreshToken', 'refresh_token'),
-          apiServerUrl: getCredentialValue(credentials, 'apiServerUrl', 'api_server_url'),
-        },
+        credentials: credentialsPayload,
         base_url: baseUrl,
         health_score: getHealthScore(account),
         email: account.email || '',
@@ -155,7 +188,10 @@ class PoolChannelBridge {
    * Release a pool account back after a request completes.
    *
    * - On success: transitions to 'available', increments success_count
-   * - On failure: transitions to 'error', increments error_count, records last_error
+   * - On failure:
+   *   - 401/403 (auth): transitions to 'error', tags with needs_refresh
+   *   - 429 (rate limit): transitions to 'cooldown' with cooldown duration
+   *   - Other errors: transitions to 'error'
    *
    * Also bumps total_requests and recalculates health_score.
    *
@@ -182,10 +218,31 @@ class PoolChannelBridge {
       }
     }
 
-    poolService.update(accountId, updates);
+    // Determine target status and extra metadata based on error type
+    let targetStatus = success ? 'available' : 'error';
+    let reason = success ? 'request completed' : `request failed: ${errorMessage || 'unknown'}`;
 
-    const targetStatus = success ? 'available' : 'error';
-    const reason = success ? 'request completed' : `request failed: ${errorMessage || 'unknown'}`;
+    if (!success && errorMessage) {
+      const errStr = String(errorMessage);
+      const httpStatus = this._extractHttpStatus(errStr);
+
+      if (httpStatus === 401 || httpStatus === 403 || /unauthorized|token.*expir/i.test(errStr)) {
+        // Auth failure -- mark for token refresh by the recovery service
+        const existingTags = Array.isArray(account.tags) ? account.tags : [];
+        if (!existingTags.includes('needs_refresh')) {
+          updates.tags = [...existingTags, 'needs_refresh'];
+        }
+        reason = `auth failure (${httpStatus || 'token expired'}): needs token refresh`;
+      } else if (httpStatus === 429 || /rate.?limit|quota|exhausted/i.test(errStr)) {
+        // Rate limit -- put into cooldown for 1 hour
+        targetStatus = 'cooldown';
+        const cooldownMs = 3600000; // 1 hour
+        updates.cooldown_until = new Date(Date.now() + cooldownMs).toISOString();
+        reason = `rate limited (429): cooldown until ${updates.cooldown_until}`;
+      }
+    }
+
+    poolService.update(accountId, updates);
 
     try {
       poolService.transitionStatus(accountId, targetStatus, reason, 'gateway');
@@ -198,6 +255,17 @@ class PoolChannelBridge {
     if (refreshed) {
       poolService.calculateHealthScore(refreshed);
     }
+  }
+
+  /**
+   * Extract HTTP status code from an error message string.
+   * Looks for patterns like "401", "Upstream error: 429", etc.
+   * @param {string} errStr
+   * @returns {number|null}
+   */
+  _extractHttpStatus(errStr) {
+    const match = errStr.match(/\b(4\d{2}|5\d{2})\b/);
+    return match ? parseInt(match[1], 10) : null;
   }
 
   // ---- Auto-Sync (background cache of pool -> channels table) ----

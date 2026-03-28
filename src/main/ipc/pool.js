@@ -1,9 +1,12 @@
 /**
  * Pool IPC Handlers
- * Handles: Pool account CRUD, status transitions, health scores, enable/disable
+ * Handles: Pool account CRUD, status transitions, health scores, enable/disable, bulk import
  */
 const { ipcMain } = require('electron');
+const path = require('path');
+const fs = require('fs');
 const retryQueueService = require('../../services/retryQueueService');
+const tokenRefreshService = require('../../services/tokenRefreshService');
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -322,7 +325,7 @@ function registerHandlers(mainWindow, deps) {
       const { poolService } = deps;
       const ErrorRecoveryService = require('../../services/errorRecoveryService');
       const recovery = new ErrorRecoveryService();
-      const result = recovery.scanAndRecover(poolService);
+      const result = await recovery.scanAndRecover(poolService);
       return { success: true, data: result };
     } catch (err) {
       return { success: false, error: err.message };
@@ -359,6 +362,335 @@ function registerHandlers(mainWindow, deps) {
         periodicRecovery = null;
       }
       return { success: true, data: { message: 'Periodic recovery stopped' } };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Refresh a single account's token via the real OAuth endpoint
+  ipcMain.handle('pool-refresh-account-token', async (event, payload) => {
+    try {
+      const accountId = getIdArg(payload);
+      if (!accountId) {
+        return { success: false, error: 'Account ID is required' };
+      }
+
+      const account = poolService.getById(accountId);
+      if (!account) {
+        return { success: false, error: `Pool account ${accountId} not found` };
+      }
+
+      const tokens = await tokenRefreshService.refreshToken(account);
+
+      // Update credentials with fresh tokens
+      const updatedCredentials = { ...(account.credentials || {}), access_token: tokens.access_token };
+      if (tokens.refresh_token) {
+        updatedCredentials.refresh_token = tokens.refresh_token;
+      }
+
+      const updated = poolService.update(accountId, {
+        credentials: updatedCredentials,
+        cooldown_until: null,
+        last_error: '',
+      });
+
+      // If account was in error state, transition back to available
+      if (account.status === 'error' || account.status === 'cooldown') {
+        try {
+          poolService.transitionStatus(accountId, 'available', 'token refreshed via API', 'system');
+        } catch (transErr) {
+          // Transition may fail if status doesn't allow it; log but don't fail the request
+          console.warn(`[pool-refresh-account-token] Status transition failed for ${accountId}: ${transErr.message}`);
+        }
+      }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pool-token-refreshed', {
+          accountId,
+          provider_type: account.provider_type,
+          hasNewRefreshToken: !!tokens.refresh_token,
+        });
+      }
+
+      return {
+        success: true,
+        data: {
+          accountId,
+          access_token_preview: tokens.access_token ? tokens.access_token.substring(0, 20) + '...' : null,
+          refresh_token_rotated: !!tokens.refresh_token,
+          expires_in: tokens.expires_in,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ---- Pool Sync Service (legacy bridge + file watching) ----
+
+  const PoolSyncService = require('../../services/poolSyncService');
+  let poolSyncService = null;
+
+  function getPoolSyncService() {
+    if (!poolSyncService) {
+      poolSyncService = new PoolSyncService(poolService);
+    }
+    return poolSyncService;
+  }
+
+  // Sync legacy CodexAccountPool → unified pool
+  ipcMain.handle('pool-sync-legacy-codex', async (event) => {
+    try {
+      const { appRoot, userDataPath } = deps;
+      if (!appRoot || !userDataPath) {
+        return { success: false, error: 'appRoot or userDataPath not available' };
+      }
+
+      // Load the legacy CodexAccountPool
+      const { CodexAccountPool } = require(path.join(appRoot, 'js', 'codexAccountSwitcher'));
+      const poolFilePath = path.join(userDataPath, 'codex_accounts.json');
+
+      if (!fs.existsSync(poolFilePath)) {
+        return { success: false, error: '旧池文件不存在: codex_accounts.json' };
+      }
+
+      const codexPool = new CodexAccountPool({ poolFilePath });
+      await codexPool.load();
+
+      const sync = getPoolSyncService();
+      const result = sync.syncFromLegacyPool(codexPool);
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pool-sync-complete', {
+          source: 'legacy-codex',
+          ...result,
+        });
+      }
+
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Start watching a directory for new account JSON files
+  ipcMain.handle('pool-start-file-watcher', async (event, payload) => {
+    try {
+      const opts = getObjectArg(payload);
+      const directory = opts.directory || path.join(process.cwd(), '账号管理', 'codex');
+      const providerType = opts.providerType || opts.provider_type || 'codex';
+
+      if (!fs.existsSync(directory)) {
+        return { success: false, error: `目录不存在: ${directory}` };
+      }
+
+      const sync = getPoolSyncService();
+
+      // Optionally do an initial bulk import before watching
+      if (opts.importExisting !== false) {
+        const importResult = await sync.importDirectory(directory, providerType);
+        console.log(`[pool-start-file-watcher] Initial import: ${JSON.stringify(importResult)}`);
+      }
+
+      const watcher = sync.watchDirectory(directory, providerType);
+      if (!watcher) {
+        return { success: false, error: '无法启动文件监控' };
+      }
+
+      return {
+        success: true,
+        data: {
+          message: `正在监控目录: ${directory}`,
+          directory,
+          providerType,
+          activeWatchers: sync.getWatcherCount(),
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Stop all file watchers
+  ipcMain.handle('pool-stop-file-watcher', async (event) => {
+    try {
+      const sync = getPoolSyncService();
+      const count = sync.getWatcherCount();
+      sync.stopAll();
+      return { success: true, data: { message: '所有文件监控已停止', stopped: count } };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ---- Bulk Import Handlers ----
+
+  /**
+   * Build a set of existing emails per provider type for fast duplicate checks.
+   * Called once before a bulk import loop to avoid N+1 queries.
+   * @returns {Map<string, Set<string>>} providerType -> Set of emails
+   */
+  function _buildExistingEmailIndex(poolService) {
+    const all = poolService.getAll();
+    const index = new Map();
+    for (const account of all) {
+      const key = account.provider_type || 'other';
+      if (!index.has(key)) index.set(key, new Set());
+      if (account.email) index.get(key).add(account.email);
+    }
+    return index;
+  }
+
+  /**
+   * Import a single account JSON object into the pool.
+   * @param {object} poolService
+   * @param {object} account - parsed JSON from file
+   * @param {string} providerType
+   * @param {Set<string>} existingEmails - emails already in pool for this provider (mutated on success)
+   * @returns {{ result: 'imported'|'skipped'|'failed', error?: string }}
+   */
+  function _importAccountToPool(poolService, account, providerType, existingEmails) {
+    try {
+      const email = (account.email || '').trim();
+      if (!email) return { result: 'failed', error: 'missing email' };
+
+      // Duplicate check using pre-built index
+      if (existingEmails.has(email)) return { result: 'skipped' };
+
+      // Determine status from expired field
+      let status = 'available';
+      if (account.expired) {
+        const expiredDate = new Date(account.expired);
+        if (expiredDate < new Date()) {
+          status = 'cooldown';
+        }
+      }
+
+      // Build credentials with expiry tracking
+      const credentials = {
+        access_token: account.access_token || '',
+        refresh_token: account.refresh_token || '',
+        id_token: account.id_token || '',
+        account_id: account.account_id || '',
+        expired: account.expired || '',
+      };
+
+      // Build tags object
+      const tags = {
+        expired: account.expired || '',
+        last_refresh: account.last_refresh || '',
+      };
+
+      poolService.add({
+        provider_type: providerType,
+        email: email,
+        display_name: email,
+        status: status,
+        credentials: credentials,
+        tags: tags,
+        source: 'bulk-import',
+        source_ref: `import-${new Date().toISOString().slice(0, 10)}`,
+      });
+
+      // Track newly imported email to prevent duplicates within the same batch
+      existingEmails.add(email);
+
+      return { result: 'imported' };
+    } catch (err) {
+      return { result: 'failed', error: err.message };
+    }
+  }
+
+  // Bulk import Codex account files from a directory
+  ipcMain.handle('pool-bulk-import-codex', async (event, payload) => {
+    try {
+      const opts = getObjectArg(payload);
+      const directory = opts.directory || path.join(process.cwd(), '账号管理', 'codex');
+
+      if (!fs.existsSync(directory)) {
+        return { success: false, error: `目录不存在: ${directory}` };
+      }
+
+      const files = fs.readdirSync(directory).filter(f => f.endsWith('.json'));
+      const counts = { imported: 0, skipped: 0, failed: 0, total: files.length, errors: [] };
+
+      // Build email index once before the loop
+      const emailIndex = _buildExistingEmailIndex(poolService);
+      const codexEmails = emailIndex.get('codex') || new Set();
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(directory, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const account = JSON.parse(content);
+
+          const { result, error } = _importAccountToPool(poolService, account, 'codex', codexEmails);
+          counts[result]++;
+          if (error) counts.errors.push({ file, error });
+        } catch (err) {
+          counts.failed++;
+          counts.errors.push({ file, error: err.message });
+        }
+      }
+
+      // Trim errors to avoid oversized response
+      if (counts.errors.length > 20) {
+        counts.errors = counts.errors.slice(0, 20);
+        counts.errors.push({ file: '...', error: `还有更多错误未显示` });
+      }
+
+      return { success: true, data: counts };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Generic bulk import: auto-detect provider type from file content
+  ipcMain.handle('pool-bulk-import-directory', async (event, payload) => {
+    try {
+      const opts = getObjectArg(payload);
+      const directory = opts.directory;
+
+      if (!directory || !fs.existsSync(directory)) {
+        return { success: false, error: `目录不存在: ${directory || '(未指定)'}` };
+      }
+
+      const files = fs.readdirSync(directory).filter(f => f.endsWith('.json'));
+      const counts = { imported: 0, skipped: 0, failed: 0, total: files.length, errors: [] };
+
+      // Build email index once before the loop
+      const emailIndex = _buildExistingEmailIndex(poolService);
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(directory, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const account = JSON.parse(content);
+
+          // Auto-detect provider type
+          let providerType = 'other';
+          if (account.type === 'codex') providerType = 'codex';
+          else if (account.type === 'windsurf') providerType = 'windsurf';
+
+          // Get or create the email set for this provider
+          if (!emailIndex.has(providerType)) emailIndex.set(providerType, new Set());
+          const providerEmails = emailIndex.get(providerType);
+
+          const { result, error } = _importAccountToPool(poolService, account, providerType, providerEmails);
+          counts[result]++;
+          if (error) counts.errors.push({ file, error });
+        } catch (err) {
+          counts.failed++;
+          counts.errors.push({ file, error: err.message });
+        }
+      }
+
+      if (counts.errors.length > 20) {
+        counts.errors = counts.errors.slice(0, 20);
+        counts.errors.push({ file: '...', error: `还有更多错误未显示` });
+      }
+
+      return { success: true, data: counts };
     } catch (err) {
       return { success: false, error: err.message };
     }

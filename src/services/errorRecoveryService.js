@@ -1,5 +1,7 @@
 'use strict';
 
+const tokenRefreshService = require('./tokenRefreshService');
+
 const ERROR_PATTERNS = [
   { pattern: /quota|exhausted|rate.?limit|429/i, type: 'cooldown', cooldownMs: 3600000, label: '额度耗尽', strategy: 'cooldown' },
   { pattern: /401|unauthorized|token.*expir/i, type: 'auth_error', cooldownMs: 0, label: 'Token过期', strategy: 'refresh' },
@@ -69,15 +71,15 @@ class ErrorRecoveryService {
 
   /**
    * Try to refresh tokens for an auth error.
-   * Re-reads credentials from accountService when available, checks for
-   * refresh_token, and transitions the account accordingly.
+   * Re-reads credentials from accountService when available, then calls the
+   * real OpenAI token endpoint via tokenRefreshService to get a new access_token.
    *
    * @param {object} poolService
    * @param {object} account
    * @param {object} [accountService] - Optional AccountService instance for credential lookup
-   * @returns {{ id: number, label: string, action: string }}
+   * @returns {Promise<{ id: number, label: string, action: string }>}
    */
-  refreshTokens(poolService, account, accountService) {
+  async refreshTokens(poolService, account, accountService) {
     let credentials = account.credentials && typeof account.credentials === 'object'
       ? account.credentials
       : {};
@@ -85,13 +87,8 @@ class ErrorRecoveryService {
     // If accountService is available, attempt to re-read fresh credentials
     if (accountService && typeof accountService.getById === 'function') {
       try {
-        // accountService.getById is async but we call it synchronously here;
-        // wrap in a flag so callers that pass accountService know the lookup ran.
-        const freshAccount = accountService.getById(account.id);
-        if (freshAccount && typeof freshAccount.then === 'function') {
-          // Cannot await in sync context – fall through to existing credentials
-          console.log(`[ErrorRecovery] accountService.getById is async; using cached credentials for account ${account.id}`);
-        } else if (freshAccount) {
+        const freshAccount = await Promise.resolve(accountService.getById(account.id));
+        if (freshAccount) {
           credentials = freshAccount.credentials && typeof freshAccount.credentials === 'object'
             ? freshAccount.credentials
             : credentials;
@@ -104,22 +101,36 @@ class ErrorRecoveryService {
 
     const refreshToken = credentials.refresh_token || credentials.refreshToken;
 
-    if (refreshToken) {
-      // Account has a refresh_token – mark as needing re-authentication.
-      // Clear cooldown and error, then transition to available.
-      console.log(`[ErrorRecovery] Account ${account.id}: refresh_token found, attempting re-authentication`);
-      poolService.update(account.id, {
-        cooldown_until: null,
-        last_error: '',
-      });
-      poolService.transitionStatus(account.id, 'available', 'auto-recovery: auth refresh attempted', 'system');
-      console.log(`[ErrorRecovery] Account ${account.id}: refresh succeeded, transitioned to available`);
-      return { id: account.id, label: 'Token过期', action: 'refresh_attempted' };
+    if (!refreshToken) {
+      console.log(`[ErrorRecovery] Account ${account.id}: no refresh_token, keeping in error state`);
+      throw new Error('缺少 refresh_token，无法刷新 Token');
     }
 
-    // No refresh_token – cannot refresh; keep in error state
-    console.log(`[ErrorRecovery] Account ${account.id}: no refresh_token, keeping in error state`);
-    throw new Error('缺少 refresh_token，无法刷新 Token');
+    console.log(`[ErrorRecovery] Account ${account.id}: refresh_token found, calling token endpoint...`);
+
+    // Build a temporary account-like object for tokenRefreshService
+    const accountForRefresh = {
+      credentials,
+      provider_type: account.provider_type || 'codex',
+    };
+
+    const tokens = await tokenRefreshService.refreshToken(accountForRefresh);
+
+    // Update pool credentials with fresh tokens
+    const updatedCredentials = { ...credentials, access_token: tokens.access_token };
+    if (tokens.refresh_token) {
+      updatedCredentials.refresh_token = tokens.refresh_token;
+    }
+
+    poolService.update(account.id, {
+      credentials: updatedCredentials,
+      cooldown_until: null,
+      last_error: '',
+    });
+    poolService.transitionStatus(account.id, 'available', 'auto-recovery: token refreshed via API', 'system');
+
+    console.log(`[ErrorRecovery] Account ${account.id}: token refresh succeeded, transitioned to available`);
+    return { id: account.id, label: 'Token过期', action: 'refresh_success' };
   }
 
   /**
@@ -166,18 +177,19 @@ class ErrorRecoveryService {
    * Start periodic scanning for recoverable accounts.
    * @param {object} poolService
    * @param {number} [intervalMs=300000] - Interval between scans in milliseconds (default 5 minutes)
+   * @param {object} [accountService] - Optional AccountService for credential lookup during refresh
    * @returns {function} Cleanup function to stop the interval
    */
-  startPeriodicScan(poolService, intervalMs = 300000) {
+  startPeriodicScan(poolService, intervalMs = 300000, accountService) {
     if (this._periodicInterval) {
       console.log('[ErrorRecovery] Periodic scan already running, stopping previous instance');
       this.stopPeriodicScan();
     }
 
     console.log(`[ErrorRecovery] Starting periodic scan every ${intervalMs}ms`);
-    this._periodicInterval = setInterval(() => {
+    this._periodicInterval = setInterval(async () => {
       try {
-        const result = this.scanAndRecover(poolService);
+        const result = await this.scanAndRecover(poolService, accountService);
         console.log(`[ErrorRecovery] Periodic scan complete: ${JSON.stringify(result.summary)}`);
       } catch (err) {
         console.error(`[ErrorRecovery] Periodic scan failed: ${err.message}`);
@@ -200,9 +212,11 @@ class ErrorRecoveryService {
 
   /**
    * Scan for recoverable accounts and apply recovery.
-   * @returns {{ recovered: Array, disabled: Array, cooldowns: Array, skipped: Array, summary: object }}
+   * @param {object} poolService
+   * @param {object} [accountService] - Optional AccountService for credential lookup during refresh
+   * @returns {Promise<{ recovered: Array, disabled: Array, cooldowns: Array, skipped: Array, summary: object }>}
    */
-  scanAndRecover(poolService) {
+  async scanAndRecover(poolService, accountService) {
     const recovered = [];
     const disabled = [];
     const cooldowns = [];
@@ -246,7 +260,7 @@ class ErrorRecoveryService {
             }
             break;
           case 'refresh':
-            recovered.push(this.refreshTokens(poolService, account));
+            recovered.push(await this.refreshTokens(poolService, account, accountService));
             break;
           case 'retry':
             recovered.push(this.retryImmediately(poolService, account));

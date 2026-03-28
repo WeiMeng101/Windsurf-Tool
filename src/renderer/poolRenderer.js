@@ -114,9 +114,11 @@ class PoolManager {
     ).join('');
     const batchBindBtn = '<button class="pool-action-btn btn-add" id="poolBatchBindBtn"><i data-lucide="credit-card" style="width:14px;height:14px;margin-right:4px;"></i>批量绑卡</button>';
     const selectAllBtn = '<button class="pool-action-btn btn-add" id="poolSelectAllBtn" style="font-size:12px;"><i data-lucide="check-square" style="width:14px;height:14px;margin-right:4px;"></i>全选可用</button>';
+    const importBtn = '<button class="pool-action-btn btn-add" id="poolImportBtn"><i data-lucide="upload" style="width:14px;height:14px;margin-right:4px;"></i>导入账号</button>';
     const addBtn = '<button class="pool-action-btn btn-add" id="poolAddApiKeyBtn"><i data-lucide="plus" style="width:14px;height:14px;margin-right:4px;"></i>添加 API Key</button>';
     const syncBtn = '<button class="pool-action-btn btn-add" id="poolSyncBtn"><i data-lucide="refresh-cw" style="width:14px;height:14px;margin-right:4px;"></i>同步到网关</button>';
-    el.innerHTML = buttons + '<div style="flex:1"></div>' + selectAllBtn + batchBindBtn + addBtn + syncBtn;
+    const legacySyncBtn = '<button class="pool-action-btn btn-add" id="poolLegacySyncBtn"><i data-lucide="git-merge" style="width:14px;height:14px;margin-right:4px;"></i>同步旧池</button>';
+    el.innerHTML = buttons + '<div style="flex:1"></div>' + selectAllBtn + batchBindBtn + importBtn + addBtn + legacySyncBtn + syncBtn;
     el.querySelectorAll('.pool-filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         this.currentFilter = btn.dataset.filter;
@@ -144,6 +146,35 @@ class PoolManager {
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }
     });
+
+    // Legacy pool sync button
+    const legacySyncBtnEl = document.getElementById('poolLegacySyncBtn');
+    if (legacySyncBtnEl) legacySyncBtnEl.addEventListener('click', async () => {
+      legacySyncBtnEl.disabled = true;
+      legacySyncBtnEl.textContent = '同步中...';
+      try {
+        const r = await window.ipcRenderer.invoke('pool-sync-legacy-codex');
+        if (r.success) {
+          const d = r.data;
+          const msg = `旧池同步完成: 新增 ${d.synced}, 更新 ${d.updated}, 跳过 ${d.skipped} (共 ${d.total})`;
+          if (window.showCustomAlert) window.showCustomAlert(msg, 'success');
+          this.render();
+        } else if (window.showCustomAlert) {
+          window.showCustomAlert(r.error || '同步失败', 'error');
+        }
+      } catch (e) {
+        console.error('Legacy pool sync failed:', e);
+        if (window.showCustomAlert) window.showCustomAlert('同步旧池失败: ' + e.message, 'error');
+      } finally {
+        legacySyncBtnEl.disabled = false;
+        legacySyncBtnEl.innerHTML = '<i data-lucide="git-merge" style="width:14px;height:14px;margin-right:4px;"></i>同步旧池';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }
+    });
+
+    // Import accounts button
+    const importBtnEl = document.getElementById('poolImportBtn');
+    if (importBtnEl) importBtnEl.addEventListener('click', () => this.showImportModal());
 
     // Select all available windsurf accounts
     const selectAllEl = document.getElementById('poolSelectAllBtn');
@@ -190,6 +221,64 @@ class PoolManager {
     this._bindCardActions(el);
   }
 
+  /**
+   * Decode a JWT payload without signature verification (browser-safe).
+   * Returns the parsed payload object or {} on failure.
+   */
+  _decodeJwt(token) {
+    if (!token) return {};
+    try {
+      const parts = token.split('.');
+      if (parts.length < 2) return {};
+      // atob works in browser context
+      const raw = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+      return JSON.parse(raw);
+    } catch { return {}; }
+  }
+
+  /**
+   * Build an HTML snippet showing the Codex token expiry state.
+   * Color-coded: green (>24h), yellow (<24h), red (expired).
+   * Returns empty string for non-Codex accounts or accounts without an access_token.
+   */
+  _renderTokenExpiry(account) {
+    const isCodex = account.provider_type === 'codex' || account.provider_type === 'windsurf';
+    if (!isCodex) return '';
+
+    const creds = account.credentials || {};
+    const accessToken = creds.access_token || creds.accessToken;
+    if (!accessToken) return '';
+
+    const payload = this._decodeJwt(accessToken);
+    if (!payload.exp) return '';
+
+    const expiresAt = payload.exp * 1000;
+    const now = Date.now();
+    const remainingMs = expiresAt - now;
+    const remainingHours = remainingMs / 3600000;
+
+    let colorCls, label;
+    if (remainingMs <= 0) {
+      colorCls = 'token-expired';
+      label = 'Token 已过期';
+    } else if (remainingHours < 24) {
+      colorCls = 'token-expiring';
+      const hrs = Math.floor(remainingHours);
+      const mins = Math.floor((remainingMs % 3600000) / 60000);
+      label = `Token ${hrs}h${mins}m`;
+    } else {
+      colorCls = 'token-valid';
+      const days = Math.floor(remainingHours / 24);
+      label = `Token ${days}d+`;
+    }
+
+    const expiryStr = new Date(expiresAt).toLocaleString('zh-CN', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+
+    return `<span class="badge ${colorCls}" title="过期: ${expiryStr}" style="font-size:10px;margin-left:4px;">${label}</span>`;
+  }
+
   _renderCard(account) {
     const sc = STATUS_CONFIG[account.status] || STATUS_CONFIG.available;
     const name = account.display_name || account.email || `#${account.id}`;
@@ -205,8 +294,14 @@ class PoolManager {
     const sourceBadge = account.source === 'registration'
       ? '<span class="badge badge-muted" style="font-size:10px;margin-left:4px;">注册</span>'
       : '';
+    const tokenExpiryBadge = this._renderTokenExpiry(account);
     const bindBtn = (account.provider_type === 'windsurf' && (account.status === 'available' || account.status === 'error'))
       ? `<button class="pool-action-btn btn-bind" data-action="bind" data-id="${account.id}" data-email="${this._esc(account.email || '')}">绑卡</button>`
+      : '';
+    // Refresh Token button for Codex accounts
+    const isCodexLike = account.provider_type === 'codex' || account.provider_type === 'windsurf';
+    const refreshBtn = isCodexLike
+      ? `<button class="pool-action-btn btn-refresh-token" data-action="refresh-token" data-id="${account.id}">刷新Token</button>`
       : '';
     // Checkbox for batch selection (windsurf accounts only)
     const isWindsurf = account.provider_type === 'windsurf';
@@ -224,7 +319,7 @@ class PoolManager {
               ${email ? `<div class="pool-card-email">${this._esc(email)}</div>` : ''}
             </div>
           </div>
-          <span class="badge ${sc.cls}">${sc.text}</span>${sourceBadge}
+          <span class="badge ${sc.cls}">${sc.text}</span>${sourceBadge}${tokenExpiryBadge}
         </div>
         <div class="pool-health-label"><span>健康度</span><span>${health}</span></div>
         <div class="pool-health-bar"><div class="pool-health-fill ${healthCls}" style="width:${health}%"></div></div>
@@ -236,6 +331,7 @@ class PoolManager {
         <div class="pool-card-footer">
           ${toggleBtn}
           ${bindBtn}
+          ${refreshBtn}
           <button class="pool-action-btn btn-delete" data-action="delete" data-id="${account.id}">删除</button>
         </div>
       </div>`;
@@ -264,6 +360,7 @@ class PoolManager {
         if (action === 'enable') await this.toggleAccountStatus(id, true);
         else if (action === 'disable') await this.toggleAccountStatus(id, false);
         else if (action === 'delete') await this.deleteAccount(id);
+        else if (action === 'refresh-token') await this.refreshAccountToken(id, btn);
         else if (action === 'bind') {
           const email = btn.dataset.email;
           if (email && typeof window.startAutoBindCardForEmail === 'function') {
@@ -291,6 +388,30 @@ class PoolManager {
     const r = await window.ipcRenderer.invoke('pool-delete-account', accountId);
     if (r.success) this.render();
     else if (window.showCustomAlert) window.showCustomAlert(r.error || '删除失败', 'error');
+  }
+
+  async refreshAccountToken(accountId, btnEl) {
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = '刷新中...';
+    }
+    try {
+      const r = await window.ipcRenderer.invoke('pool-refresh-account-token', accountId);
+      if (r.success) {
+        if (window.showCustomAlert) window.showCustomAlert('Token 刷新成功', 'success');
+        this.render();
+      } else {
+        if (window.showCustomAlert) window.showCustomAlert(r.error || 'Token 刷新失败', 'error');
+      }
+    } catch (e) {
+      console.error('Token refresh failed:', e);
+      if (window.showCustomAlert) window.showCustomAlert('Token 刷新异常', 'error');
+    } finally {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '刷新Token';
+      }
+    }
   }
 
   async addApiKey(providerType, apiKey, baseUrl, displayName) {
@@ -448,6 +569,99 @@ class PoolManager {
         document.getElementById('poolApiBaseUrl').value,
         document.getElementById('poolApiDisplayName').value,
       );
+    });
+  }
+
+  showImportModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'pool-modal-overlay';
+    overlay.id = 'poolModalOverlay';
+    overlay.innerHTML = `
+      <div class="pool-modal">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div class="pool-modal-title">导入账号</div>
+          <button id="poolModalClose" style="background:none;border:none;color:var(--text-secondary,#94a3b8);cursor:pointer;padding:4px;">
+            <i data-lucide="x" style="width:18px;height:18px;"></i>
+          </button>
+        </div>
+        <div class="pool-modal-field">
+          <label class="pool-modal-label">导入目录</label>
+          <input type="text" id="poolImportDir" class="pool-modal-input" value="账号管理/codex" placeholder="账号管理/codex">
+          <div style="font-size:11px;color:var(--text-secondary,#94a3b8);margin-top:4px;">
+            输入包含账号 JSON 文件的目录路径（相对于项目根目录或绝对路径）
+          </div>
+        </div>
+        <div class="pool-modal-field">
+          <label class="pool-modal-label">导入模式</label>
+          <select id="poolImportMode" class="pool-modal-input pool-modal-select">
+            <option value="codex">Codex 账号（固定 provider_type=codex）</option>
+            <option value="auto">自动检测（根据文件内 type 字段判断）</option>
+          </select>
+        </div>
+        <div id="poolImportResult" style="display:none;margin-top:12px;padding:10px;border-radius:6px;background:var(--bg-tertiary,#1e293b);font-size:12px;line-height:1.6;"></div>
+        <div class="pool-modal-actions">
+          <button id="poolModalCancel" class="pool-modal-btn pool-modal-btn-cancel">取消</button>
+          <button id="poolImportSubmit" class="pool-modal-btn pool-modal-btn-primary">开始导入</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    overlay.querySelector('#poolModalClose').addEventListener('click', () => this._closeModal());
+    overlay.querySelector('#poolModalCancel').addEventListener('click', () => this._closeModal());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) this._closeModal(); });
+
+    overlay.querySelector('#poolImportSubmit').addEventListener('click', async () => {
+      const dirInput = document.getElementById('poolImportDir');
+      const modeSelect = document.getElementById('poolImportMode');
+      const resultEl = document.getElementById('poolImportResult');
+      const submitBtn = document.getElementById('poolImportSubmit');
+      const directory = dirInput.value.trim();
+      const mode = modeSelect.value;
+
+      if (!directory) {
+        if (window.showCustomAlert) window.showCustomAlert('请输入目录路径', 'warning');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '导入中...';
+      resultEl.style.display = 'block';
+      resultEl.textContent = '正在读取文件并导入，请稍候...';
+
+      try {
+        const channel = mode === 'codex' ? 'pool-bulk-import-codex' : 'pool-bulk-import-directory';
+        const r = await window.ipcRenderer.invoke(channel, { directory });
+
+        if (r.success) {
+          const d = r.data;
+          let html = `<div style="font-weight:600;margin-bottom:6px;">导入完成</div>`;
+          html += `<div>总计: ${d.total} 个文件</div>`;
+          html += `<div style="color:#22c55e;">已导入: ${d.imported}</div>`;
+          html += `<div style="color:#f59e0b;">已跳过（重复）: ${d.skipped}</div>`;
+          if (d.failed > 0) {
+            html += `<div style="color:#ef4444;">失败: ${d.failed}</div>`;
+          }
+          resultEl.innerHTML = html;
+
+          // Show toast
+          const msg = `导入完成: 导入 ${d.imported}, 跳过 ${d.skipped}, 失败 ${d.failed}`;
+          if (window.showCustomAlert) {
+            window.showCustomAlert(msg, d.failed > 0 ? 'warning' : 'success');
+          }
+
+          // Refresh pool view
+          this.render();
+        } else {
+          resultEl.innerHTML = `<div style="color:#ef4444;">导入失败: ${r.error}</div>`;
+          if (window.showCustomAlert) window.showCustomAlert(r.error || '导入失败', 'error');
+        }
+      } catch (err) {
+        resultEl.innerHTML = `<div style="color:#ef4444;">导入异常: ${err.message}</div>`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '开始导入';
+      }
     });
   }
 
