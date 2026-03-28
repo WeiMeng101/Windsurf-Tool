@@ -1,0 +1,453 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LyyAPI CPA Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">LY</div>
+                <div>
+                    <div class="logo" data-i18n="logo">LyyAPI Manager</div>
+                    <div class="logo-sub">CLI Proxy Panel</div>
+                </div>
+            </div>
+
+            <div class="nav-list">
+                <div class="nav-item active"><i class="fas fa-chart-line"></i> <span data-i18n="nav_dashboard">Dashboard</span></div>
+                <div class="nav-item"><i class="fas fa-cog"></i> <span data-i18n="nav_settings">Settings</span></div>
+                <div class="nav-item"><i class="fas fa-terminal"></i> <span data-i18n="nav_logs">Logs</span></div>
+                <button class="nav-item nav-button" type="button" onclick="toggleLang()">
+                    <i class="fas fa-language"></i>
+                    <span id="lang-btn">EN</span>
+                </button>
+            </div>
+
+            <div class="status-panel">
+                <div class="status-title" data-i18n="server_status">Server Status</div>
+                <div id="cpa-indicator" class="proc-item">
+                    <span class="status-indicator status-stopped"></span>
+                    <span class="proc-name" data-i18n="cpa_proxy">CPA Proxy</span>
+                    <span class="proc-state" data-i18n="status_offline">Offline</span>
+                </div>
+                <div id="pool-indicator" class="proc-item">
+                    <span class="status-indicator status-stopped"></span>
+                    <span class="proc-name" data-i18n="pool_keeper">Pool Keeper</span>
+                    <span class="proc-state" data-i18n="status_offline">Offline</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <section class="hero animate-fade">
+                <div>
+                    <h1 data-i18n="overview_title">Operations Overview</h1>
+                    <p data-i18n="overview_desc">Unified control for registration, pool health, schedule and process lifecycle.</p>
+                </div>
+                <div id="last-update" class="status-note">Last update: --:--:--</div>
+            </section>
+
+            <section class="stats-grid animate-fade">
+                <article class="stat-card">
+                    <div class="stat-head">
+                        <span data-i18n="reg_target">Registration Target</span>
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div id="target-reg" class="stat-value">--</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head">
+                        <span data-i18n="pool_buffer">Pool Buffer</span>
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <div id="target-pool" class="stat-value">--</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head">
+                        <span data-i18n="proxy_endpoint">Proxy Endpoint</span>
+                        <i class="fas fa-link"></i>
+                    </div>
+                    <div id="proxy-endpoint" class="stat-value stat-endpoint">--</div>
+                </article>
+            </section>
+
+            <section class="control-grid animate-fade">
+                <article class="card">
+                    <h2 class="card-title" data-i18n="reg_settings">Registration Settings</h2>
+                    <div class="form-group">
+                        <label for="input-reg" data-i18n="auto_acc_target">Automatic Account Target</label>
+                        <input type="number" id="input-reg" data-i18n-placeholder="placeholder_reg" placeholder="e.g. 20">
+                    </div>
+                    <div class="form-group">
+                        <label for="input-pool" data-i18n="keep_healthy">Keep Healthy Count</label>
+                        <input type="number" id="input-pool" data-i18n-placeholder="placeholder_pool" placeholder="e.g. 8">
+                        <small class="hint" data-i18n="unlimited_label">Set 0 for unlimited registration</small>
+                    </div>
+                    <button class="btn btn-primary" type="button" onclick="saveConfig()">
+                        <i class="fas fa-save"></i>
+                        <span data-i18n="save_btn">Save Configuration</span>
+                    </button>
+                </article>
+
+                <article class="card">
+                    <h2 class="card-title" data-i18n="scheduled_tasks">Scheduled Tasks</h2>
+                    <div class="toggle-row">
+                        <input type="checkbox" id="chk-schedule">
+                        <label for="chk-schedule" data-i18n="enable_schedule">Enable Schedule</label>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-schedule-day" data-i18n="start_day">Execution Day</label>
+                        <select id="input-schedule-day">
+                            <option value="everyday" data-i18n="every_day">Every Day</option>
+                            <option value="0" data-i18n="monday">Monday</option>
+                            <option value="1" data-i18n="tuesday">Tuesday</option>
+                            <option value="2" data-i18n="wednesday">Wednesday</option>
+                            <option value="3" data-i18n="thursday">Thursday</option>
+                            <option value="4" data-i18n="friday">Friday</option>
+                            <option value="5" data-i18n="saturday">Saturday</option>
+                            <option value="6" data-i18n="sunday">Sunday</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-schedule-time" data-i18n="start_time">Start Time</label>
+                        <input type="time" id="input-schedule-time" step="1">
+                    </div>
+                    <button class="btn btn-primary" type="button" onclick="saveSchedule()">
+                        <i class="fas fa-clock"></i>
+                        <span data-i18n="save_schedule">Save Schedule</span>
+                    </button>
+                </article>
+
+                <article class="card">
+                    <h2 class="card-title" data-i18n="proc_control">Process Control</h2>
+                    <div class="proc-group">
+                        <div>
+                            <div class="sub-label" data-i18n="proxy_server">Proxy Server</div>
+                            <div class="btn-row">
+                                <button id="btn-start-cpa" class="btn btn-ghost" type="button" onclick="controlProc('start', 'cpa')">
+                                    <i class="fas fa-play"></i>
+                                    <span data-i18n="start">Start</span>
+                                </button>
+                                <button id="btn-stop-cpa" class="btn btn-ghost" type="button" onclick="controlProc('stop', 'cpa')">
+                                    <i class="fas fa-stop"></i>
+                                    <span data-i18n="stop">Stop</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="sub-label" data-i18n="sync_service">Sync Service</div>
+                            <div class="btn-row">
+                                <button id="btn-start-pool" class="btn btn-ghost" type="button" onclick="controlProc('start', 'pool_keeper')">
+                                    <i class="fas fa-play"></i>
+                                    <span data-i18n="start">Start</span>
+                                </button>
+                                <button id="btn-stop-pool" class="btn btn-ghost" type="button" onclick="controlProc('stop', 'pool_keeper')">
+                                    <i class="fas fa-stop"></i>
+                                    <span data-i18n="stop">Stop</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline" type="button" onclick="triggerReg()">
+                        <i class="fas fa-plus-circle"></i>
+                        <span data-i18n="trigger_reg">Trigger Registration</span>
+                    </button>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script>
+        const API = `${window.location.origin}/api`;
+        let currentLang = 'en';
+        let isRefreshing = false;
+        let toastTimer = null;
+
+        const i18n = {
+            en: {
+                logo: 'LyyAPI Manager',
+                nav_dashboard: 'Dashboard',
+                nav_settings: 'Settings',
+                nav_logs: 'Logs',
+                server_status: 'Service Status',
+                cpa_proxy: 'CPA Proxy',
+                pool_keeper: 'Pool Keeper',
+                status_online: 'Online',
+                status_offline: 'Offline',
+                overview_title: 'Operations Overview',
+                overview_desc: 'Unified control for registration, pool health, schedule and process lifecycle.',
+                last_update: 'Last update',
+                reg_target: 'Registration Target',
+                pool_buffer: 'Pool Buffer',
+                proxy_endpoint: 'Proxy Endpoint',
+                proxy_none: 'Not configured',
+                reg_settings: 'Registration Settings',
+                auto_acc_target: 'Automatic Account Target',
+                keep_healthy: 'Healthy Pool Count',
+                unlimited_label: 'Set 0 for unlimited registration.',
+                save_btn: 'Save Configuration',
+                scheduled_tasks: 'Scheduled Tasks',
+                enable_schedule: 'Enable Schedule',
+                start_day: 'Execution Day',
+                start_time: 'Start Time',
+                save_schedule: 'Save Schedule',
+                proc_control: 'Process Control',
+                proxy_server: 'Proxy Service',
+                sync_service: 'Sync Service',
+                start: 'Start',
+                stop: 'Stop',
+                trigger_reg: 'Trigger Registration',
+                every_day: 'Every Day',
+                monday: 'Monday',
+                tuesday: 'Tuesday',
+                wednesday: 'Wednesday',
+                thursday: 'Thursday',
+                friday: 'Friday',
+                saturday: 'Saturday',
+                sunday: 'Sunday',
+                placeholder_reg: 'e.g. 20',
+                placeholder_pool: 'e.g. 8',
+                alert_save: 'Configuration saved successfully.',
+                alert_schedule: 'Schedule updated successfully.',
+                alert_trigger: 'Registration task has been triggered.',
+                alert_proc: 'Process command sent.',
+                alert_error: 'Request failed, check server logs.'
+            },
+            zh: {
+                logo: 'LyyAPI 管理台',
+                nav_dashboard: '控制面板',
+                nav_settings: '系统设置',
+                nav_logs: '运行日志',
+                server_status: '服务状态',
+                cpa_proxy: 'CPA 代理',
+                pool_keeper: '账号池服务',
+                status_online: '运行中',
+                status_offline: '已停止',
+                overview_title: '运行概览',
+                overview_desc: '统一管理注册目标、账号池健康度、定时任务和进程生命周期。',
+                last_update: '最近更新',
+                reg_target: '注册目标数',
+                pool_buffer: '账号池健康数',
+                proxy_endpoint: '代理地址',
+                proxy_none: '未配置',
+                reg_settings: '注册参数配置',
+                auto_acc_target: '自动注册目标总数',
+                keep_healthy: '维持健康账号数',
+                unlimited_label: '设置为 0 表示无限注册。',
+                save_btn: '保存配置',
+                scheduled_tasks: '定时任务',
+                enable_schedule: '启用定时执行',
+                start_day: '执行日期',
+                start_time: '执行时间',
+                save_schedule: '保存定时配置',
+                proc_control: '进程控制',
+                proxy_server: '代理服务',
+                sync_service: '同步服务',
+                start: '启动',
+                stop: '停止',
+                trigger_reg: '触发注册任务',
+                every_day: '每天',
+                monday: '周一',
+                tuesday: '周二',
+                wednesday: '周三',
+                thursday: '周四',
+                friday: '周五',
+                saturday: '周六',
+                sunday: '周日',
+                placeholder_reg: '例如：20',
+                placeholder_pool: '例如：8',
+                alert_save: '配置已保存。',
+                alert_schedule: '定时配置已更新。',
+                alert_trigger: '注册任务已触发。',
+                alert_proc: '进程控制命令已发送。',
+                alert_error: '请求失败，请检查服务日志。'
+            }
+        };
+
+        function t(key) {
+            return i18n[currentLang][key] || key;
+        }
+
+        function showToast(message, type = 'success') {
+            const el = document.getElementById('toast');
+            el.textContent = message;
+            el.className = `toast show ${type}`;
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => {
+                el.className = 'toast';
+            }, 2600);
+        }
+
+        function applyI18n() {
+            document.querySelectorAll('[data-i18n]').forEach((el) => {
+                const key = el.getAttribute('data-i18n');
+                if (i18n[currentLang][key]) {
+                    el.textContent = i18n[currentLang][key];
+                }
+            });
+
+            document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (i18n[currentLang][key]) {
+                    el.placeholder = i18n[currentLang][key];
+                }
+            });
+
+            document.getElementById('lang-btn').textContent = currentLang === 'zh' ? 'EN' : '中文';
+            document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+        }
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            applyI18n();
+            refresh();
+        }
+
+        function toggleLang() {
+            setLanguage(currentLang === 'en' ? 'zh' : 'en');
+        }
+
+        function updateLastUpdate() {
+            const now = new Date();
+            const locale = currentLang === 'zh' ? 'zh-CN' : 'en-US';
+            const hhmmss = now.toLocaleTimeString(locale, { hour12: false });
+            document.getElementById('last-update').textContent = `${t('last_update')}: ${hhmmss}`;
+        }
+
+        async function fetchJSON(url, options) {
+            const resp = await fetch(url, options);
+            if (!resp.ok) {
+                const msg = await resp.text();
+                throw new Error(msg || `HTTP ${resp.status}`);
+            }
+            return resp.json();
+        }
+
+        async function refresh() {
+            if (isRefreshing) {
+                return;
+            }
+            isRefreshing = true;
+            try {
+                const cfg = await fetchJSON(`${API}/config`);
+                document.getElementById('target-reg').textContent = cfg.registration_count ?? '--';
+                document.getElementById('target-pool').textContent = cfg.keep_count ?? '--';
+                document.getElementById('proxy-endpoint').textContent = cfg.proxy || t('proxy_none');
+                if (document.activeElement.id !== 'input-reg') {
+                    document.getElementById('input-reg').value = cfg.registration_count ?? 0;
+                }
+                if (document.activeElement.id !== 'input-pool') {
+                    document.getElementById('input-pool').value = cfg.keep_count ?? 0;
+                }
+
+                const sched = await fetchJSON(`${API}/schedule`);
+                if (document.activeElement.id !== 'chk-schedule') {
+                    document.getElementById('chk-schedule').checked = !!sched.enabled;
+                }
+                if (document.activeElement.id !== 'input-schedule-day') {
+                    document.getElementById('input-schedule-day').value = sched.day || 'everyday';
+                }
+                if (document.activeElement.id !== 'input-schedule-time') {
+                    document.getElementById('input-schedule-time').value = sched.time || '00:00:00';
+                }
+
+                const status = await fetchJSON(`${API}/status`);
+                updateIndicator('cpa', status.cpa);
+                updateIndicator('pool', status.pool_keeper);
+                updateLastUpdate();
+            } catch (err) {
+                console.error('Refresh error:', err);
+            } finally {
+                isRefreshing = false;
+            }
+        }
+
+        function updateIndicator(id, status) {
+            const normalized = status === 'running' ? 'running' : 'stopped';
+            const nameKey = id === 'cpa' ? 'cpa_proxy' : 'pool_keeper';
+            const stateKey = normalized === 'running' ? 'status_online' : 'status_offline';
+            const el = document.getElementById(`${id}-indicator`);
+            el.innerHTML = `
+                <span class="status-indicator status-${normalized}"></span>
+                <span class="proc-name">${t(nameKey)}</span>
+                <span class="proc-state">${t(stateKey)}</span>
+            `;
+        }
+
+        async function saveConfig() {
+            const data = {
+                registration_count: document.getElementById('input-reg').value,
+                keep_count: document.getElementById('input-pool').value
+            };
+            try {
+                await fetchJSON(`${API}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                showToast(t('alert_save'));
+                refresh();
+            } catch (err) {
+                console.error(err);
+                showToast(t('alert_error'), 'error');
+            }
+        }
+
+        async function saveSchedule() {
+            const data = {
+                enabled: document.getElementById('chk-schedule').checked,
+                day: document.getElementById('input-schedule-day').value,
+                time: document.getElementById('input-schedule-time').value
+            };
+            try {
+                await fetchJSON(`${API}/schedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                showToast(t('alert_schedule'));
+                refresh();
+            } catch (err) {
+                console.error(err);
+                showToast(t('alert_error'), 'error');
+            }
+        }
+
+        async function controlProc(action, name) {
+            try {
+                await fetchJSON(`${API}/${action}/${name}`, { method: 'POST' });
+                showToast(t('alert_proc'));
+                setTimeout(refresh, 800);
+            } catch (err) {
+                console.error(err);
+                showToast(t('alert_error'), 'error');
+            }
+        }
+
+        async function triggerReg() {
+            showToast(t('alert_trigger'));
+            await controlProc('start', 'pool_keeper');
+        }
+
+        refresh();
+        setInterval(refresh, 5000);
+        const browserLang = navigator.language && navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+        setLanguage(browserLang);
+    </script>
+</body>
+
+</html>
